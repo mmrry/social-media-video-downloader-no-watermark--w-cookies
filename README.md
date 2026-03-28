@@ -11,7 +11,7 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 | Facebook | ✅ | `facebook.com`, `fb.watch` |
 | Pinterest | ✅ | `pinterest.com`, `pin.it` |
 | X (Twitter) | ✅ | `twitter.com`, `x.com` |
-
+| Youtube | | `you` |
 ## Prerequisites
 
 - **Python 3.11+**
@@ -61,6 +61,10 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 | `BOT_TOKEN` | — | Your Telegram Bot API token (required) |
 | `MAX_FILE_SIZE_MB` | `50` | Max file size for uploads (Telegram limit) |
 | `DOWNLOAD_DIR` | `./downloads` | Temp directory for video files |
+| ` ` | ` ` | |
+
+## Docker
+`docker compose up -d --build`
 
 ## Architecture
 
@@ -72,4 +76,4 @@ bot/
 ├── downloader.py   # yt-dlp wrapper with quality optimization
 └── utils.py        # URL detection, platform identification
 ```
-# social-media-video-downloader-no-watermark
+# social-media-video-downloader-no-watermark--w-cookies
