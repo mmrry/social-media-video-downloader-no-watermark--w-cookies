@@ -74,7 +74,7 @@ To check logs: `docker compose logs -f`
 | `/help` | Supported platforms and usage guide |
 | `/id` | Check yours TG ID |
 | `/status` | Check bot load & queue |
-| `/stats` | Global download staticits only for Admin ID |
+| `/stats` | Global download statistics only for Admin ID |
 
 ## Configuration
 
@@ -83,7 +83,7 @@ To check logs: `docker compose logs -f`
 | `BOT_TOKEN` | — | Your Telegram Bot API token (required) |
 | `MAX_FILE_SIZE_MB` | `50` | Max file size for uploads (Telegram limit) |
 | `DOWNLOAD_DIR` | `./downloads` | Temp directory for video files |
-| `ADMIN_IDS` |  `/stats` | User afmins id from `/stats` command |
+| `ADMIN_IDS` |  `/stats` | User Admins id for `/stats` command |
 
 ## Architecture
 
