@@ -15,6 +15,11 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 | Snapchat | ✅ | `snapchat.com`, `t.snapchat.com` |
 
 *FOR Instagram* - need COOKIES.txt; from Firefox login Instagram user `yt-dlp --cookies-from-browser firefox --cookies cookies.txt --skip-download "https://www.instagram.com/p/ID/"`
+`chown -R $USER:$USER ./downloads/`
+`chmod 777 downloads/`
+`chmod 666 cookies.txt` 
+`docker compose up -d --build`
+`docker compose logs -f`
 
 ## Prerequisites
 
