@@ -1,4 +1,4 @@
-# 🎬 TVDB — Telegram Video Downloader Bot
+# 🎬 Telegram Video Downloader Bot
 
 A Telegram bot that downloads high-quality, watermark-free videos from popular social media platforms using **yt-dlp**.
 
@@ -6,15 +6,17 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 
 | Platform | Watermark-Free | Domains |
 |----------|:---:|---------|
-| TikTok | ✅ | `tiktok.com`, `vm.tiktok.com` |
-| Instagram | ✅ | `instagram.com` |
-| Facebook | ✅ | `facebook.com`, `fb.watch` |
+| TikTok | ✅ | `tiktok.com`, `vm.tiktok.com`, `vt.tiktok.com"` |
+| Instagram | ✅ | `instagram.com` | # Need COOKIES.txt; from Firefox login Instagram user `yt-dlp --cookies-from-browser firefox --cookies cookies.txt --skip-download "https://www.instagram.com/p/ID/"`
+| Facebook | ✅ | `facebook.com`, `fb.watch`, `fb.com` |
 | Pinterest | ✅ | `pinterest.com`, `pin.it` |
 | X (Twitter) | ✅ | `twitter.com`, `x.com` |
-| Youtube | | `you` |
+| Youtube | ✅ | `youtube.com`, `youtu.be`, `m.youtube.com` |
+| Snapchat | ✅ | `snapchat.com`, `t.snapchat.com` |
+
 ## Prerequisites
 
-- **Python 3.11+**
+- **Python 3.12+**
 - **FFmpeg** — must be installed and in your system PATH
   - Windows: `choco install ffmpeg` or download from [ffmpeg.org](https://ffmpeg.org/download.html)
   - Linux: `sudo apt install ffmpeg`
@@ -25,19 +27,17 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 
 1. **Clone and install dependencies:**
    ```bash
-   cd tvdb
-   pip install -r requirements.txt
+   cd social-media-video-downloader-no-watermark--w-cookies
+   pip3 install -r requirements.txt
    ```
-
 2. **Configure environment:**
    ```bash
    cp .env.example .env
    # Edit .env and add your bot token
    ```
-
 3. **Run the bot:**
    ```bash
-   python -m bot.main
+   python3 -m bot.main
    ```
 
 ## Usage
@@ -53,6 +53,9 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 |---------|-------------|
 | `/start` | Welcome message and quick intro |
 | `/help` | Supported platforms and usage guide |
+| `/id` | Check yours TG ID |
+| `/status` | Check bot load & queue |
+| `/stats` | Global download staticits only for Admin ID |
 
 ## Configuration
 
@@ -61,10 +64,11 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 | `BOT_TOKEN` | — | Your Telegram Bot API token (required) |
 | `MAX_FILE_SIZE_MB` | `50` | Max file size for uploads (Telegram limit) |
 | `DOWNLOAD_DIR` | `./downloads` | Temp directory for video files |
-| ` ` | ` ` | |
+| `ADMIN_IDS` |  `/stats` | User afmins id from `/stats` command |
 
 ## Docker
 `docker compose up -d --build`
+To check logs: `docker compose logs -f`
 
 ## Architecture
 
