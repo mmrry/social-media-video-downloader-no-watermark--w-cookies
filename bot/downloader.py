@@ -33,7 +33,7 @@ def _get_ydl_opts(
 
     opts: dict[str, Any] = {
         "outtmpl": output_path,
-        "noplaylist": True,
+        "noplaylist": False,
         "socket_timeout": 30,
         "retries": 10,
         "fragment_retries": 10,
