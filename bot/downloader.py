@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 import yt_dlp
 
-from bot.config import DOWNLOAD_DIR, MAX_FILE_SIZE_BYTES
+from bot.config import DOWNLOAD_DIR, MAX_FILE_SIZE_BYTES, COOKIES_FILE
 from bot.utils import sanitize_filename
 
 logger = logging.getLogger(__name__)
