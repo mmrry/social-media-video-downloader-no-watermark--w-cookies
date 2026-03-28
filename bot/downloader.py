@@ -67,9 +67,11 @@ def _get_ydl_opts(
     is_instagram = "instagram.com" in url
     if is_instagram and COOKIES_FILE and Path(COOKIES_FILE).exists():
         opts["cookiefile"] = COOKIES_FILE
-        logger.debug(f"Instagram URL — using cookies file: {COOKIES_FILE}")
+        logger.info(f"✅ Instagram — cookiefile set: {COOKIES_FILE}")  # was debug
     elif is_instagram and COOKIES_FILE:
-        logger.warning(f"COOKIES_FILE is set but not found: {COOKIES_FILE}")
+        logger.info(f"❌ Instagram — cookiefile NOT FOUND: {COOKIES_FILE}")  # was warning
+    elif is_instagram:
+        logger.info("❌ Instagram — COOKIES_FILE is empty in config")
 
     return opts
 
