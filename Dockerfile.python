@@ -15,7 +15,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY bot/ ./bot/
 RUN mkdir -p downloads
 
-RUN useradd -m botuser && chown -R botuser:botuser /app
+RUN useradd -m botuser \
+    && mkdir -p downloads \
+    && chown -R botuser:botuser /app
 USER botuser
 
 CMD ["sh", "-c", "cd /app && python3 -m bot.main"]
