@@ -1,0 +1,16 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./downloads:/app/downloads
+      - ./cookies.txt:/cookies/cookies.txt
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
