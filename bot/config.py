@@ -13,6 +13,9 @@ if not BOT_TOKEN:
 _admin_raw = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS: list[int] = [int(x.strip()) for x in _admin_raw.split(",") if x.strip().isdigit()]
 
+# Cookie
+COOKIES_FILE: str = os.getenv("COOKIES_FILE", "")
+
 # --- Download Settings ---
 MAX_FILE_SIZE_MB: int = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
 MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_MB * 1024 * 1024
