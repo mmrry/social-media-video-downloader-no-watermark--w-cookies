@@ -24,9 +24,12 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 
 `chmod 666 cookies.txt` 
 
+## Docker
+
 `docker compose up -d --build`
 
-`docker compose logs -f`
+To check logs: `docker compose logs -f`
+
 
 ## Prerequisites
 
@@ -79,10 +82,6 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 | `MAX_FILE_SIZE_MB` | `50` | Max file size for uploads (Telegram limit) |
 | `DOWNLOAD_DIR` | `./downloads` | Temp directory for video files |
 | `ADMIN_IDS` |  `/stats` | User afmins id from `/stats` command |
-
-## Docker
-`docker compose up -d --build`
-To check logs: `docker compose logs -f`
 
 ## Architecture
 
