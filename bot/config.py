@@ -32,12 +32,12 @@ MAX_CONCURRENT_DOWNLOADS: int = int(os.getenv("MAX_CONCURRENT_DOWNLOADS", "3"))
 # --- Supported Platforms ---
 SUPPORTED_PLATFORMS: dict[str, list[str]] = {
     "TikTok":      ["tiktok.com", "vm.tiktok.com", "vt.tiktok.com"],
-    "Instagram":   ["instagram.com"],
+    "Instagram":   ["instagram.com"], #COOKIES.txt
     "Facebook":    ["facebook.com", "fb.watch", "fb.com"],
     "Pinterest":   ["pinterest.com", "pin.it"],
     "X (Twitter)": ["twitter.com", "x.com"],
     "YouTube":     ["youtube.com", "youtu.be", "m.youtube.com"],
-    "Reddit":      ["reddit.com", "redd.it", "v.redd.it"],
+    #"Reddit":      ["reddit.com", "redd.it", "v.redd.it"], #Error 403, need login cookies
     "Snapchat":    ["snapchat.com", "t.snapchat.com"],
-    "Threads":     ["threads.net"],
+    #"Threads":     ["threads.net", "threads.com"], #yt-dlp not supported threads.com
 }
