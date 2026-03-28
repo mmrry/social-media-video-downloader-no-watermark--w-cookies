@@ -7,12 +7,14 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 | Platform | Watermark-Free | Domains |
 |----------|:---:|---------|
 | TikTok | ✅ | `tiktok.com`, `vm.tiktok.com`, `vt.tiktok.com"` |
-| Instagram | ✅ | `instagram.com` | # Need COOKIES.txt; from Firefox login Instagram user `yt-dlp --cookies-from-browser firefox --cookies cookies.txt --skip-download "https://www.instagram.com/p/ID/"`
+| Instagram | ✅ | `instagram.com` | 
 | Facebook | ✅ | `facebook.com`, `fb.watch`, `fb.com` |
 | Pinterest | ✅ | `pinterest.com`, `pin.it` |
 | X (Twitter) | ✅ | `twitter.com`, `x.com` |
 | Youtube | ✅ | `youtube.com`, `youtu.be`, `m.youtube.com` |
 | Snapchat | ✅ | `snapchat.com`, `t.snapchat.com` |
+
+*FOR Instagram* - need COOKIES.txt; from Firefox login Instagram user `yt-dlp --cookies-from-browser firefox --cookies cookies.txt --skip-download "https://www.instagram.com/p/ID/"`
 
 ## Prerequisites
 
