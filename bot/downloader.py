@@ -11,17 +11,15 @@ from bot.utils import sanitize_filename
 
 logger = logging.getLogger(__name__)
 
-
 class DownloadError(Exception):
     pass
-
 
 class FileTooLargeError(Exception):
     pass
 
-
 def _get_ydl_opts(
     output_path: str,
+    url: str = "",
     audio_only: bool = False,
     progress_hook: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
@@ -66,8 +64,14 @@ def _get_ydl_opts(
     if progress_hook:
         opts["progress_hooks"] = [progress_hook]
 
-    return opts
+    is_instagram = "instagram.com" in url
+    if is_instagram and COOKIES_FILE and Path(COOKIES_FILE).exists():
+        opts["cookiefile"] = COOKIES_FILE
+        logger.debug(f"Instagram URL — using cookies file: {COOKIES_FILE}")
+    elif is_instagram and COOKIES_FILE:
+        logger.warning(f"COOKIES_FILE is set but not found: {COOKIES_FILE}")
 
+    return opts
 
 async def download_video_async(
     url: str,
@@ -92,7 +96,7 @@ def download_video(
     # Use placeholder for yt-dlp to fill extension
     output_template = str(DOWNLOAD_DIR / f"{file_id}.%(ext)s")
 
-    opts = _get_ydl_opts(output_template, audio_only, progress_hook)
+    opts = _get_ydl_opts(output_template, url=url, audio_only=audio_only, progress_hook=progress_hook)
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
