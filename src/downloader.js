@@ -4,7 +4,11 @@ import { statSync, readdirSync, unlinkSync, existsSync } from "fs";
 import { join } from "path";
 import { randomBytes } from "crypto";
 
-import { DOWNLOAD_DIR, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, COOKIES_FILE } from "./config.js";
+import {
+  DOWNLOAD_DIR, COOKIES_FILE,
+  TELEGRAM_CLOUD_LIMIT_BYTES, TELEGRAM_CLOUD_LIMIT_MB,
+  LOCAL_BOT_API_URL, MAX_LARGE_FILE_SIZE_BYTES, MAX_LARGE_FILE_SIZE_MB,
+} from "./config.js";
 
 const execFileAsync = promisify(execFile);
 
