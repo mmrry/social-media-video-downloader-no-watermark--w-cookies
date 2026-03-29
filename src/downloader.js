@@ -21,7 +21,7 @@ const USER_AGENT =
 /**
  * Download video + audio (merged to MP4) using yt-dlp.
  */
-export async function download(url) {
+export async function download(url, { skipSizeLimit = false } = {}) {
 	const fileId = randomBytes(6).toString("hex");
 	const outTemplate = join(DOWNLOAD_DIR, `${fileId}.%(ext)s`);
 
