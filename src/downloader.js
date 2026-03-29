@@ -25,11 +25,16 @@ export async function download(url, { skipSizeLimit = false } = {}) {
 	const fileId = randomBytes(6).toString("hex");
 	const outTemplate = join(DOWNLOAD_DIR, `${fileId}.%(ext)s`);
 
+	// разный формат для Twitch — у него нет потоков с кодеком avc1):
+	const isTwitch = /twitch\.tv/i.test(url);
+	const formatArg = isTwitch
+	? "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+	: "bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best";
+	
 	const args = [
 		// Prefer H.264 video + AAC audio — compatible with all phones, PCs and Telegram.
 		// Falls back to any mp4 combo, then anything available.
-		"--format",
-		"bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
+		"--format", formatArg,
 		"--merge-output-format", "mp4",
 
 		// Re-encode to H.264+AAC to guarantee playback on every device
@@ -84,22 +89,42 @@ export async function download(url, { skipSizeLimit = false } = {}) {
 	if (!filePath) throw new DownloadError("File not found after download.");
 
 	const { size } = statSync(filePath);
-	if (size > MAX_FILE_SIZE_BYTES) {
+	const mb = (b) => (b / 1024 / 1024).toFixed(1);
+
+	// Обычная платформа — жёсткий лимит 50 МБ
+	if (!skipSizeLimit && size > TELEGRAM_CLOUD_LIMIT_BYTES) {
 		cleanup(filePath);
 		throw new FileTooLargeError(
-			`File is ${(size / 1024 / 1024).toFixed(1)} MB — exceeds the ${MAX_FILE_SIZE_MB} MB Telegram limit.`
+			`File is ${mb(size)} MB — exceeds the ${TELEGRAM_CLOUD_LIMIT_MB} MB Telegram limit.`
+		);
+	}
+
+	// Большой файл, но local API не настроен
+	if (skipSizeLimit && size > TELEGRAM_CLOUD_LIMIT_BYTES && !LOCAL_BOT_API_URL) {
+		cleanup(filePath);
+		throw new FileTooLargeError(
+			`File is ${mb(size)} MB — exceeds the ${TELEGRAM_CLOUD_LIMIT_MB} MB Telegram limit.\n` +
+			`LOCAL_BOT_API_URL is not configured.`
+		);
+	}
+
+	// Абсолютный потолок даже при local API
+	if (skipSizeLimit && size > MAX_LARGE_FILE_SIZE_BYTES) {
+		cleanup(filePath);
+		throw new FileTooLargeError(
+			`File is ${mb(size)} MB — exceeds the ${MAX_LARGE_FILE_SIZE_MB} MB hard cap.`
 		);
 	}
 
 	return {
 		filePath,
-		title: info.title || "Video",
-		duration: info.duration || 0,
-		uploader: info.uploader || info.channel || "Unknown",
-		platform: info.extractor_key || "Unknown",
-		fileSize: size,
+		title:       info.title    || "Video",
+		duration:    info.duration || 0,
+		uploader:    info.uploader || info.channel || "Unknown",
+		platform:    info.extractor_key || "Unknown",
+		fileSize:    size,
+		isLargeFile: size > TELEGRAM_CLOUD_LIMIT_BYTES,  // для статус-сообщения
 	};
-}
 
 function findFile(dir, prefix, preferredExt) {
 	const files = readdirSync(dir).filter((f) => f.startsWith(prefix));
