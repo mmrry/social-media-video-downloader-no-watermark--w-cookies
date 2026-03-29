@@ -16,7 +16,11 @@ ADMIN_IDS: list[int] = [int(x.strip()) for x in _admin_raw.split(",") if x.strip
 # Cookie
 COOKIES_FILE: str = os.getenv("COOKIES_FILE", "")
 
+# LOCAL BOT API 
+BOT_API_URL: str = os.getenv("BOT_API_URL", "")
+
 # --- Download Settings ---
+_default_limit = "2000" if BOT_API_URL else "50"
 MAX_FILE_SIZE_MB: int = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
 MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_MB * 1024 * 1024
 
