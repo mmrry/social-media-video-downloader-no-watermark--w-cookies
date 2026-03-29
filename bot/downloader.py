@@ -34,16 +34,16 @@ def _get_ydl_opts(
     opts: dict[str, Any] = {
         "outtmpl": output_path,
         "noplaylist": False,
-        "socket_timeout": 30,
+        "socket_timeout": 60,
         "retries": 10,
-        "fragment_retries": 10,
+        "fragment_retries": 15,
         "geo_bypass": True,
         "quiet": False,
         "no_warnings": False,
         "http_headers": headers,
         "extractor_args": {
             "tiktok": {
-                "api_hostname": ["api22-normal-c-useast2a.tiktokv.com"],
+                   "api_hostname": ["api22-normal-c-useast2a.tiktokv.com"],
             },
         },
         "postprocessors": [],
