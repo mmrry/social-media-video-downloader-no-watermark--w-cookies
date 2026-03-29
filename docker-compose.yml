@@ -2,15 +2,23 @@ services:
   bot:
     build:
       context: .
-      dockerfile: Dockerfile.python
+      dockerfile: Dockerfile              #  Dockerfile для Node.js
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      LOCAL_BOT_API_URL: http://tg-bot-api:8081   
     volumes:
       - ./downloads:/app/downloads
-      - ./cookies.txt:/cookies/cookies.txt
+      - ./cookies.txt:/app/cookies.txt     #ro          
+    networks:
+      - botnet                                     
     logging:
       driver: "json-file"
       options:
         max-size: "50m"
         max-file: "3"
+
+networks:
+  botnet:
+    external: true                        # сеть уже создана: docker network create botnet
