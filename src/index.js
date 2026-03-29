@@ -11,7 +11,24 @@ import { download, cleanup, DownloadError, FileTooLargeError } from "./downloade
 import { stats } from "./stats.js";
 import { queue } from "./queue.js";
 
-const bot = new Telegraf(BOT_TOKEN);
+if (!LOCAL_BOT_API_URL) {
+  console.warn("⚠️ LOCAL_BOT_API_URL not set — files >50 MB will fail.");
+}
+
+const bot = new Telegraf(BOT_TOKEN, {
+  telegram: {
+    // Все запросы идут через local Bot API (http://tg-bot-api:8081).
+    // Файлы ≤50 МБ — сервер проксирует в Telegram как обычно.
+    // Файлы >50 МБ — сервер принимает стрим и загружает сам без лимита.
+    ...(LOCAL_BOT_API_URL ? { apiRoot: LOCAL_BOT_API_URL } : {}),
+    // Увеличиваем таймаут: стандартные 30 с не хватит для стрима 200+ МБ
+    timeoutMs: 20 * 60 * 1000,
+  },
+});
+
+if (LOCAL_BOT_API_URL) {
+  console.log(`🔗 Local Bot API: ${LOCAL_BOT_API_URL}`);
+}
 
 // ── Cooldown ─────────────────────────────────────────────────────
 const lastRequest = new Map();
