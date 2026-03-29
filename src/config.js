@@ -32,6 +32,8 @@ export const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_DOWNLOADS || "
 // Адрес local Bot API сервера — прокидывается из docker-compose автоматически
 export const LOCAL_BOT_API_URL = process.env.LOCAL_BOT_API_URL || "";
 
+// Платформы без 50 МБ лимита — требуют local Bot API
+export const PLATFORMS_NO_SIZE_LIMIT = new Set(["Twitch"]);  
 
 // ── Platforms ────────────────────────────────────────────────────
 export const PLATFORMS = {
