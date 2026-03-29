@@ -4,7 +4,7 @@ import time
 from telegram import BotCommand
 from telegram.ext import ApplicationBuilder
 
-from bot.config import BOT_TOKEN
+from bot.config import BOT_TOKEN, BOT_API_URL
 from bot.handlers import get_handlers
 
 # ── Logging setup ──
@@ -34,29 +34,33 @@ async def post_init(application) -> None:
 
 
 def main() -> None:
-    """Initialize and start the Telegram bot."""
     logger.info("🚀 Starting Video Downloader Bot...")
 
-    # Build the application
-    app = (
+    builder = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
-        .read_timeout(120)
-        .write_timeout(120)
-        .post_init(post_init)
-        .build()
+        .read_timeout(300)    # увеличить для больших файлов
+        .write_timeout(300)
+        .connect_timeout(30)
     )
 
-    # Register handlers
+    # +++ Подключение к локальному Bot API +++
+    if BOT_API_URL:
+        # python-telegram-bot ожидает base_url вида: http://host:port/bot
+        base_url = BOT_API_URL.rstrip("/") + "/bot"
+        base_file_url = BOT_API_URL.rstrip("/") + "/file/bot"
+        builder = builder.base_url(base_url).base_file_url(base_file_url)
+        logger.info(f"🔗 Using local Bot API: {base_url}")
+    else:
+        logger.info("🌐 Using official Telegram Bot API")
+
+    app = builder.post_init(post_init).build()
+
     for handler in get_handlers():
         app.add_handler(handler)
 
     logger.info("Bot is ready. Polling for messages...")
-    
-    # Give Telegram a moment to close any previous connection
-    time.sleep(5)
-    
-    # Run until interrupted
+    time.sleep(3)
     app.run_polling(drop_pending_updates=True)
 
 
