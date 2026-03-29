@@ -238,8 +238,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     performer=uploader,
                     duration=int(duration),
                     parse_mode=ParseMode.HTML,
-                    read_timeout=120,
-                    write_timeout=120,
+                    read_timeout=300,
+                    write_timeout=300,
                 )
             else:
                 await query.message.reply_video(
@@ -248,8 +248,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     duration=int(duration),
                     parse_mode=ParseMode.HTML,
                     supports_streaming=True,
-                    read_timeout=120,
-                    write_timeout=120,
+                    read_timeout=300,
+                    write_timeout=300,
                 )
         
         # Cleanup and stats
