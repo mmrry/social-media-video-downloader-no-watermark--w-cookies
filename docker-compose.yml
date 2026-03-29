@@ -2,12 +2,10 @@ services:
   bot:
     build:
       context: .
-      dockerfile: Dockerfile              #  Dockerfile для Node.js
+      dockerfile: Dockerfile.python
     restart: unless-stopped
     env_file:
       - .env
-    environment:
-      LOCAL_BOT_API_URL: http://tg-bot-api:8081   
     volumes:
       - ./downloads:/app/downloads
       - ./cookies.txt:/app/cookies.txt     #ro          
