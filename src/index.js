@@ -119,8 +119,10 @@ bot.on(message("text"), async (ctx) => {
     acquired = true;
     stats.recordAttempt();
 
-    const result = await download(url);
-    const { filePath, title, duration, uploader, fileSize } = result;
+    const result = await download(url, {
+      skipSizeLimit: PLATFORMS_NO_SIZE_LIMIT.has(platform),
+    });
+    const { filePath, title, duration, uploader, fileSize, isLargeFile } = result;
 
     const mins = Math.floor(duration / 60);
     const secs = String(Math.floor(duration % 60)).padStart(2, "0");
@@ -131,7 +133,10 @@ bot.on(message("text"), async (ctx) => {
       `\n📦 ${formatBytes(fileSize)}`;
 
     await ctx.telegram.editMessageText(
-      ctx.chat.id, statusMsg.message_id, undefined, "📤 Uploading..."
+      ctx.chat.id, statusMsg.message_id, undefined,
+      isLargeFile
+        ? "📤 Uploading large file via local API... (this may take a minute)"
+        : "📤 Uploading..."
     );
 
     await ctx.replyWithVideo(
