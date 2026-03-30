@@ -65,7 +65,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     text = (
         "👋 <b>Welcome to the Video Downloader Bot!</b>\n\n"
         "I can download videos from:\n"
-        f"<i>{platforms}</i>\n\n"
+        "<i>{platforms}</i>\n\n"
         "⚡ <b>How to use:</b>\n"
         "Just send me a link, and I'll ask if you want it as a <b>Video</b> or <b>Audio (MP3)</b>.\n\n"
         "💡 <i>Tip: You can send multiple links in one message!</i>\n"
@@ -292,7 +292,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         parse_mode=ParseMode.HTML
     )
 
+    # Инициализация переменных для гарантированной очистки в finally
+    file_path = None
     acquired = False
+    
     try:
         # Acquire slot in queue
         await queue_manager.acquire(user_id)
@@ -308,9 +311,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Download
         logger.info(f"Starting download: {url} (audio_only={audio_only})")
         result = await download_video_async(url, audio_only=audio_only)
-        logger.info(f"Download complete: {result['file_path']}")
-
         file_path = result["file_path"]
+        logger.info(f"Download complete: {file_path}")
+
         title = result["title"]
         duration = result.get("duration", 0)
         uploader = result.get("uploader", "Unknown")
@@ -357,8 +360,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     write_timeout=300,
                 )
 
-        # Cleanup and stats
-        cleanup_file(file_path)
+        # Успешное завершение
         stats.record_success(platform, user_id)
         await query.delete_message()
         logger.info(f"Successfully sent to user {user_id}")
@@ -375,6 +377,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         stats.record_failure()
         await query.edit_message_text("❌ <b>An unexpected error occurred.</b>", parse_mode=ParseMode.HTML)
     finally:
+        # ОЧИСТКА: Удаляем файл всегда, если он был создан
+        if file_path:
+            cleanup_file(file_path)
+            logger.info(f"Cleanup performed for: {file_path}")
+            
         if acquired:
             await queue_manager.release(user_id)
 
