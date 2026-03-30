@@ -13,7 +13,9 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 | X (Twitter) | ✅ | `twitter.com`, `x.com` |
 | Youtube | ✅ | `youtube.com`, `youtu.be`, `m.youtube.com` |
 | Snapchat | ✅ | `snapchat.com`, `t.snapchat.com` |
-| Twitch | ✅ | `"twitch.tv", "clips.twitch.tv", "m.twitch.tv` |
+| Twitch | ✅ | `"twitch.tv", "clips.twitch.tv", "m.twitch.tv"` |
+| VK | ✅ | `vk.com", "vkvideo.ru"` |
+| RuTube| ✅ | `"rutube.ru"` |
 
 ### TODO: download VK story (? need login) 
 
