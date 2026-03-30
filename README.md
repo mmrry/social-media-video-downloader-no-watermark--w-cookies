@@ -22,6 +22,8 @@ Current maximum file size - 1Gb
 ### TODO:
 1. Download VK story (?); need login
 2. For full stat - add json db with link, UID, done status 
+3. Add to handler choose quality before download
+4. Clean ./downloads if bot exited with code 137\Error upload
 
 *FOR Instagram* - need COOKIES.txt; from Firefox login Instagram user
 
