@@ -1,22 +1,35 @@
 services:
+  telegram-api-server:
+    image: aiogram/telegram-bot-api:latest
+    restart: unless-stopped
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      TELEGRAM_STAT: "1"
+    volumes:
+      - ./downloads:/var/lib/telegram-bot-api
+    networks:
+      - botnet
+
   bot:
     build:
       context: .
       dockerfile: Dockerfile.python
     restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - BOT_API_URL=http://telegram-api-server:8081
+      - MAX_FILE_SIZE_MB=2000
     env_file:
       - .env
     volumes:
       - ./downloads:/app/downloads
-      - ./cookies.txt:/app/cookies.txt     #ro          
+      - ./cookies.txt:/app/cookies.txt
     networks:
-      - botnet                                     
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "3"
+      - botnet
+    depends_on:
+      - telegram-api-server
 
 networks:
   botnet:
-    external: true                        # сеть уже создана: docker network create botnet
+    driver: bridge
