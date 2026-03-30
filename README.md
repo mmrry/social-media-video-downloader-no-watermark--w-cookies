@@ -15,7 +15,7 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 | Snapchat | ✅ | `snapchat.com`, `t.snapchat.com` |
 | Twitch | ✅ | `"twitch.tv", "clips.twitch.tv", "m.twitch.tv` |
 
-### TODO: download VK clips, VK story, Rutube shorts
+### TODO: download VK story (? need login) 
 
 *FOR Instagram* - need COOKIES.txt; from Firefox login Instagram user
 
