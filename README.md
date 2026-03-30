@@ -32,6 +32,7 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 ## Docker
 Rebuild, start
 `docker compose up -d --build`
+
 Stop: `docker compose down`
 
 To check logs: `docker compose logs -f`
