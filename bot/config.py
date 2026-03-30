@@ -16,7 +16,7 @@ ADMIN_IDS: list[int] = [int(x.strip()) for x in _admin_raw.split(",") if x.strip
 # Cookie
 COOKIES_FILE: str = os.getenv("COOKIES_FILE", "")
 
-# LOCAL BOT API 
+# LOCAL BOT API
 BOT_API_URL: str = os.getenv("BOT_API_URL", "")
 
 # --- Download Settings ---
