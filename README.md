@@ -33,33 +33,6 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 
 To check logs: `docker compose logs -f`
 
-
-## Prerequisites
-
-- **Python 3.12+**
-- **FFmpeg** — must be installed and in your system PATH
-  - Windows: `choco install ffmpeg` or download from [ffmpeg.org](https://ffmpeg.org/download.html)
-  - Linux: `sudo apt install ffmpeg`
-  - macOS: `brew install ffmpeg`
-- **Telegram Bot Token** — create one via [@BotFather](https://t.me/BotFather)
-
-## Setup
-
-1. **Clone and install dependencies:**
-   ```bash
-   cd social-media-video-downloader-no-watermark--w-cookies
-   pip3 install -r requirements.txt
-   ```
-2. **Configure environment:**
-   ```bash
-   cp .env.example .env
-   # Edit .env and add your bot token
-   ```
-3. **Run the bot:**
-   ```bash
-   python3 -m bot.main
-   ```
-
 ## Usage
 
 1. Open your bot in Telegram
