@@ -13,8 +13,9 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 | X (Twitter) | ✅ | `twitter.com`, `x.com` |
 | Youtube | ✅ | `youtube.com`, `youtu.be`, `m.youtube.com` |
 | Snapchat | ✅ | `snapchat.com`, `t.snapchat.com` |
+| Twitch | ✅ | `"twitch.tv", "clips.twitch.tv", "m.twitch.tv` |
 
-## TODO: download Twicth Clips, VK clips, VK story, Rutube shorts
+### TODO: download VK clips, VK story, Rutube shorts
 
 *FOR Instagram* - need COOKIES.txt; from Firefox login Instagram user
 
