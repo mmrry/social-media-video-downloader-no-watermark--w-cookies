@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import uuid
+import shutil
 from pathlib import Path
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -15,10 +16,11 @@ from telegram.ext import (
 
 from bot.config import SUPPORTED_PLATFORMS, ADMIN_IDS, COOLDOWN_SECONDS
 from bot.downloader import (
-    download_video_async, 
-    cleanup_file, 
-    DownloadError, 
-    FileTooLargeError
+    download_video_async,
+    cleanup_file,
+    DownloadError,
+    FileTooLargeError,
+    get_video_info
 )
 from bot.utils import extract_urls, identify_platform, format_file_size, get_file_size, _escape_html
 from bot.stats import stats
@@ -43,6 +45,16 @@ def _store_url(url: str) -> str:
 def _pop_url(short_id: str) -> str | None:
     """Retrieve and remove a stored URL by its short key."""
     return _pending_urls.pop(short_id, None)
+
+
+# Функция для проверки дискового пространства
+def check_disk_space(required_bytes: int) -> bool:
+    """Проверяет свободное место на диске (с запасом 100 МБ)."""
+    try:
+        total, used, free = shutil.disk_usage("./downloads")
+        return free > (required_bytes + (100 * 1024 * 1024))
+    except Exception:
+        return True # Fallback, если проверить не удалось
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -80,11 +92,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     ]
     for platform in sorted(SUPPORTED_PLATFORMS.keys()):
         lines.append(f"• {platform}")
-    
+
     lines.append("\n<b>Commands:</b>")
     lines.append("/status - Check bot load & queue")
     lines.append("/stats - Global download statistics")
-    
+
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
@@ -92,7 +104,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Handle /status — queue information."""
     active = queue_manager.active_downloads()
     depth = queue_manager.queue_depth()
-    
+
     text = (
         "🛰 <b>Bot Status</b>\n\n"
         f"Active downloads: <b>{active}</b>\n"
@@ -137,6 +149,66 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not platform:
             continue
 
+        # Проверка размера файла и места на диске перед выбором формата
+        status_msg = await update.message.reply_text("🔍 Анализирую ссылку...", reply_to_message_id=update.message.message_id)
+        try:
+            info = await asyncio.to_thread(get_video_info, url)
+            filesize = info.get('filesize') or info.get('filesize_approx')
+
+            # 1. Защита от NoneType
+            if filesize is None:
+                filesize = 0
+
+            # Эвристика для стримов (VK, m3u8), если размер 0
+            if filesize == 0:
+                duration = info.get('duration', 0)
+                tbr = info.get('tbr')
+
+                # Пытаемся вытащить данные из списка форматов (yt-dlp не всегда выносит их наверх)
+                if not tbr and info.get('formats'):
+                    for f in reversed(info['formats']): # Идем с конца (обычно там лучшее качество)
+                        if f.get('tbr') or f.get('vbr'):
+                            tbr = f.get('tbr') or f.get('vbr')
+                            break
+                        if f.get('filesize_approx'):
+                            filesize = f.get('filesize_approx')
+                            break
+
+                # Если размер все еще 0, но есть длительность, берем битрейт 2500 kbps в среднем
+                if filesize == 0 and duration > 0:
+                    tbr = tbr or 2500
+                    filesize = (tbr * duration * 1024) / 8
+
+            if filesize > 0:
+                # 2. Проверка места на диске
+                if not check_disk_space(filesize):
+                    await status_msg.edit_text("❌ Файл слишком большой (недостаточно места на сервере).")
+                    continue
+
+                # 3. Предупреждение о размере > 1 ГБ
+                if filesize > (1024 * 1024 * 1024):
+                    sid = _store_url(url)
+                    human_size = format_file_size(filesize)
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("Да", callback_data=f"conf|y|{sid}"),
+                            InlineKeyboardButton("Нет", callback_data=f"conf|n|{sid}")
+                        ]
+                    ]
+                    await status_msg.edit_text(
+                        f"⚠️ Файл больше 1 ГБ ({human_size}). Уверены что хотите продолжить? Да\Нет?",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    continue
+
+            await status_msg.delete()
+        except Exception as e:
+            logger.error(f"Pre-check error: {e}")
+            try:
+                await status_msg.delete()
+            except:
+                pass
+
         # Store URL with a short ID for callback_data (Telegram 64-byte limit)
         sid = _store_url(url)
 
@@ -147,7 +219,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await update.message.reply_text(
             f"🎯 <b>Found {platform} link!</b>\n"
             "Choose your format:",
@@ -161,8 +233,41 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Handle format choice selection."""
     query = update.callback_query
     await query.answer()
-    
+
     data = query.data.split("|")
+
+    # Обработка кнопок подтверждения Да/Нет для файлов > 1 ГБ
+    if data[0] == "conf" and len(data) == 3:
+        action = data[1]
+        sid = data[2]
+
+        if action == "n":
+            await query.edit_message_text("Отменено.")
+            _pop_url(sid)
+            return
+
+        # Если нажали "Да", восстанавливаем URL и показываем выбор формата
+        url = _pending_urls.get(sid)
+        if not url:
+            await query.edit_message_text("⚠️ This link has expired. Please send it again.")
+            return
+
+        platform = identify_platform(url) or "Unknown"
+        keyboard = [
+            [
+                InlineKeyboardButton("🎬 Video", callback_data=f"dl|v|{sid}"),
+                InlineKeyboardButton("🎵 Audio (MP3)", callback_data=f"dl|a|{sid}"),
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            f"🎯 <b>Found {platform} link!</b>\n"
+            "Choose your format:",
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML
+        )
+        return
+
     if data[0] != "dl" or len(data) != 3:
         return
 
@@ -176,9 +281,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not url:
         await query.edit_message_text("⚠️ This link has expired. Please send it again.")
         return
-    
+
     platform = identify_platform(url) or "Unknown"
-    
+
     # Update message to show "waiting in queue"
     await query.edit_message_text(
         f"⏳ Processing <b>{platform}</b>...\n"
@@ -192,19 +297,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Acquire slot in queue
         await queue_manager.acquire(user_id)
         acquired = True
-        
+
         stats.record_attempt()
         await query.edit_message_text(f"📥 Downloading from <b>{platform}</b>...", parse_mode=ParseMode.HTML)
-        
+
         # Action feedback
         action = ChatAction.UPLOAD_DOCUMENT if audio_only else ChatAction.UPLOAD_VIDEO
         await query.message.chat.send_action(action)
-        
+
         # Download
         logger.info(f"Starting download: {url} (audio_only={audio_only})")
         result = await download_video_async(url, audio_only=audio_only)
         logger.info(f"Download complete: {result['file_path']}")
-        
+
         file_path = result["file_path"]
         title = result["title"]
         duration = result.get("duration", 0)
@@ -220,14 +325,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if duration:
             mins, secs = divmod(int(duration), 60)
             caption += f"  ⏱ {mins}:{secs:02d}"
-        
+
         file_size = get_file_size(file_path)
         caption += f"\n📦 {format_file_size(file_size)}"
 
         # Upload
         await query.edit_message_text("📤 Uploading...")
         await query.message.chat.send_action(action)
-        
+
         logger.info(f"Uploading {file_path} ({format_file_size(file_size)})")
         with open(file_path, "rb") as f:
             if audio_only:
@@ -251,7 +356,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     read_timeout=300,
                     write_timeout=300,
                 )
-        
+
         # Cleanup and stats
         cleanup_file(file_path)
         stats.record_success(platform, user_id)
