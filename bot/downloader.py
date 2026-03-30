@@ -6,6 +6,8 @@ from typing import Any, Callable
 
 import yt_dlp
 
+import shutil
+
 from bot.config import DOWNLOAD_DIR, MAX_FILE_SIZE_BYTES, COOKIES_FILE
 from bot.utils import sanitize_filename
 
@@ -16,6 +18,41 @@ class DownloadError(Exception):
 
 class FileTooLargeError(Exception):
     pass
+
+# Get media data w\o download
+def get_video_info(url: str) -> dict:
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'cookiefile': COOKIES_FILE if COOKIES_FILE else None,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+        return info
+
+# Check space file fs; 100mb always free
+def check_disk_space(required_bytes: int, directory: str = "/app/downloads") -> bool:
+    try:
+        stat = shutil.disk_usage(directory)
+        return stat.free > (required_bytes + (100 * 1024 * 1024))
+    except Exception:
+        return True # Fallback
+
+# Защита в процессе скачивания (если эвристика не сработала)
+def get_progress_hook() -> Callable:
+    def hook(d: dict):
+        if d['status'] == 'downloading':
+            downloaded = d.get('downloaded_bytes', 0)
+
+            # Если скачано больше лимита Telegram (или заданного MAX_FILE_SIZE_BYTES)
+            if downloaded > MAX_FILE_SIZE_BYTES:
+                raise FileTooLargeError(f"Файл в процессе загрузки превысил лимит {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB.")
+
+            # Проверка дискового пространства на лету
+            total = d.get('total_bytes') or d.get('total_bytes_estimate')
+            if total and not check_disk_space(total):
+                raise DownloadError("На сервере закончилось свободное место.")
+    return hook
 
 def _get_ydl_opts(
     output_path: str,
@@ -34,6 +71,7 @@ def _get_ydl_opts(
     opts: dict[str, Any] = {
         "outtmpl": output_path,
         "noplaylist": False,
+        "max_filesize": MAX_FILE_SIZE_BYTES,
         "socket_timeout": 60,
         "retries": 10,
         "fragment_retries": 15,
@@ -98,6 +136,10 @@ def download_video(
     # Use placeholder for yt-dlp to fill extension
     output_template = str(DOWNLOAD_DIR / f"{file_id}.%(ext)s")
 
+    # Если хук не передан, ставим свой защитный
+    if progress_hook is None:
+        progress_hook = get_progress_hook()
+
     opts = _get_ydl_opts(output_template, url=url, audio_only=audio_only, progress_hook=progress_hook)
 
     try:
@@ -110,11 +152,11 @@ def download_video(
 
             # Resolve actual file path
             file_path = ydl.prepare_filename(info)
-            
+
             # Post-processing might change the extension (e.g. merge to mp4 or convert to mp3)
             ext = "mp3" if audio_only else "mp4"
             final_path = Path(file_path).with_suffix(f".{ext}")
-            
+
             if final_path.exists():
                 file_path = str(final_path)
             elif not Path(file_path).exists():
@@ -123,7 +165,7 @@ def download_video(
                     if f.name.startswith(file_id):
                         file_path = str(f)
                         break
-                
+
             if not Path(file_path).exists():
                 raise DownloadError("Download finished but file not found.")
 
