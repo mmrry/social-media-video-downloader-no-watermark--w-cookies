@@ -58,6 +58,9 @@ To check logs: `docker compose logs -f`
 | `MAX_FILE_SIZE_MB` | `50` | Max file size for uploads (Telegram limit) |
 | `DOWNLOAD_DIR` | `./downloads` | Temp directory for video files |
 | `ADMIN_IDS` |  `/stats` | User Admins id for `/stats` command |
+| `COOKIES_FILE` | `/app/cookies.txt` | Docker path cookies files. Local cookies.txt at root bot path |
+| `COOLDOWN_SECONDS` | `5` | Cooldown secs |
+| `MAX_CONCURRENT_DOWNLOADS` | `3` | Maximum parallel downloads |
 
 ## Architecture
 
