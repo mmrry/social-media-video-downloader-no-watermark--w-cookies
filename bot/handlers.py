@@ -65,7 +65,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     text = (
         "👋 <b>Welcome to the Video Downloader Bot!</b>\n\n"
         "I can download videos from:\n"
-        "<i>{platforms}</i>\n\n"
+        f"<i>{platforms}</i>\n\n"
         "⚡ <b>How to use:</b>\n"
         "Just send me a link, and I'll ask if you want it as a <b>Video</b> or <b>Audio (MP3)</b>.\n\n"
         "💡 <i>Tip: You can send multiple links in one message!</i>\n"
@@ -361,6 +361,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
 
         # Успешное завершение
+        cleanup_file(file_path)
         stats.record_success(platform, user_id)
         await query.delete_message()
         logger.info(f"Successfully sent to user {user_id}")
