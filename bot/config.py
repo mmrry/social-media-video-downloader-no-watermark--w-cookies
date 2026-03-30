@@ -24,6 +24,9 @@ _default_limit = "2000" if BOT_API_URL else "50"
 MAX_FILE_SIZE_MB: int = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
 MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_MB * 1024 * 1024
 
+# Limit 1gb
+WARNING_THRESHOLD_BYTES = 1024 * 1024 * 1024
+
 DOWNLOAD_DIR: Path = Path(os.getenv("DOWNLOAD_DIR", "./downloads"))
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
