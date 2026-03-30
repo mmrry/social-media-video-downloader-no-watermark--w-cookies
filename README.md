@@ -17,10 +17,11 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 | VK | ✅ | `vk.com", "vkvideo.ru"` |
 | RuTube| ✅ | `"rutube.ru"` |
 
+Current maximum file size - 1Gb
+
 ### TODO:
-1. download VK story (? need login)
-2. Check filesize before download, if its more than free space - cancel
-3. For full stat - add json db with link, UID, done status 
+1. Download VK story (?); need login
+2. For full stat - add json db with link, UID, done status 
 
 *FOR Instagram* - need COOKIES.txt; from Firefox login Instagram user
 
