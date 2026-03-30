@@ -44,5 +44,7 @@ SUPPORTED_PLATFORMS: dict[str, list[str]] = {
     #"Reddit":      ["reddit.com", "redd.it", "v.redd.it"], #Error 403, need login cookies
     "Snapchat":    ["snapchat.com", "t.snapchat.com"],
     "Twitch":      ["twitch.tv", "clips.twitch.tv", "m.twitch.tv"],
+    "VK":          ["vk.com", "vkvideo.ru"],
+    "RuTube":      ["rutube.ru"],
     #"Threads":     ["threads.net", "threads.com"], #yt-dlp not supported threads.com
 }
