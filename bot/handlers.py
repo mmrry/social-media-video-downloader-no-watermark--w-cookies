@@ -361,7 +361,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
 
         # Успешное завершение
-        cleanup_file(file_path)
+        #cleanup_file(file_path)
         stats.record_success(platform, user_id)
         await query.delete_message()
         logger.info(f"Successfully sent to user {user_id}")
