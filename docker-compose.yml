@@ -14,7 +14,6 @@ services:
         max-size: "10m"   # максимальный размер одного файла лога
         max-file: "9"     # хранить 9 файлов × 10 МБ = 90 МБ
     networks:
-    networks:
       - botnet
 
   bot:
