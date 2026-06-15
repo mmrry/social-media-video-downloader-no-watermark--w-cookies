@@ -83,3 +83,7 @@ bot/
 └── utils.py        # URL detection, platform identification
 ```
 # social-media-video-downloader-no-watermark--w-cookies
+
+### To Do:
+* Wait Telegram to get preview video file
+* 
