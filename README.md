@@ -86,4 +86,4 @@ bot/
 
 ### To Do:
 * Wait Telegram to get preview video file
-* 
+* Support https://live.vkvideo.ru/<>/clip/ 
