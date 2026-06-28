@@ -87,3 +87,6 @@ bot/
 ### To Do:
 * Wait Telegram to get preview video file. При текущей отправки файлов нет превью и размер окна видео неверный
 * Support https://live.vkvideo.ru/<>/clip/ AND  kick.com/<USER>/clips/
+* Add to handler choose quality before download
+* Clean ./downloads if bot exited with code 137\Error upload
+
