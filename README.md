@@ -85,5 +85,5 @@ bot/
 # social-media-video-downloader-no-watermark--w-cookies
 
 ### To Do:
-* Wait Telegram to get preview video file
-* Support https://live.vkvideo.ru/<>/clip/ 
+* Wait Telegram to get preview video file. При текущей отправки файлов нет превью и размер окна видео неверный
+* Support https://live.vkvideo.ru/<>/clip/ AND  kick.com/<USER>/clips/
