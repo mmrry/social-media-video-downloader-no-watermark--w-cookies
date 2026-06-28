@@ -14,7 +14,7 @@ A Telegram bot that downloads high-quality, watermark-free videos from popular s
 | Youtube | ✅ | `youtube.com`, `youtu.be`, `m.youtube.com` |
 | Snapchat | ✅ | `snapchat.com`, `t.snapchat.com` |
 | Twitch | ✅ | `"twitch.tv", "clips.twitch.tv", "m.twitch.tv"` |
-| VK | ✅ | `vk.com", "vkvideo.ru"` |
+| VK | ✅ | `"vk.com", "vkvideo.ru"` |
 | RuTube| ✅ | `"rutube.ru"` |
 
 Current maximum file size - 1Gb
