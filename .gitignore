@@ -1,5 +1,7 @@
-# Environment
+# Environment / secrets
 .env
+cookies.txt
+*cookies*.txt
 
 # Python
 __pycache__/
@@ -15,8 +17,9 @@ venv/
 node_modules/
 logs/
 
-# Downloads
+# Runtime data
 downloads/
+tg-api-data/
 
 # IDE
 .vscode/
