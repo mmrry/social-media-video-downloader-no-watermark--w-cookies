@@ -1,21 +1,16 @@
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Deno — JS-runtime, который нужен свежему yt-dlp для YouTube
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
 
-# Скачиваем только yt-dlp
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
-    -o /usr/local/bin/yt-dlp \
-    && chmod +x /usr/local/bin/yt-dlp
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY bot/ ./bot/
-RUN mkdir -p /app/downloads && chmod 777 /app/downloads
+RUN mkdir -p /app/downloads
 
-# Запускаем напрямую бота
 CMD ["python3", "-m", "bot.main"]

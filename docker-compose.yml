@@ -5,14 +5,18 @@ services:
     environment:
       TELEGRAM_API_ID: ${TELEGRAM_API_ID}
       TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      TELEGRAM_LOCAL: "1"      # --local: загрузка по пути к файлу + лимит 2000 MB
       TELEGRAM_STAT: "1"
     volumes:
-      - ./downloads:/var/lib/telegram-bot-api
+      # Данные сервера отдельно от загрузок бота
+      - ./tg-api-data:/var/lib/telegram-bot-api
+      # Тот же путь, что и в контейнере бота — file:///app/downloads/... должен существовать здесь
+      - ./downloads:/app/downloads:ro
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"   # максимальный размер одного файла лога
-        max-file: "9"     # хранить 9 файлов × 10 МБ = 90 МБ
+        max-size: "10m"
+        max-file: "9"
     networks:
       - botnet
 
@@ -21,15 +25,18 @@ services:
       context: .
       dockerfile: Dockerfile.python
     restart: unless-stopped
-    environment:
-      - BOT_TOKEN=${BOT_TOKEN}
-      - BOT_API_URL=http://telegram-api-server:8081
-      - MAX_FILE_SIZE_MB=2000
     env_file:
       - .env
+    environment:
+      - BOT_API_URL=http://telegram-api-server:8081
+      - TELEGRAM_LOCAL_MODE=1
+      - DOWNLOAD_DIR=/app/downloads
+      - MAX_FILE_SIZE_MB=2000
     volumes:
       - ./downloads:/app/downloads
-      - ./cookies.txt:/app/cookies.txt
+      - ./cookies.txt:/app/cookies.txt:ro
+      # Опционально, для VK (раскомментировать + VK_COOKIES_FILE=/app/vk_cookies.txt в .env):
+      # - ./vk_cookies.txt:/app/vk_cookies.txt:ro
     networks:
       - botnet
     depends_on:
