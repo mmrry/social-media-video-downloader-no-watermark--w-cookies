@@ -26,15 +26,22 @@ def extract_urls(text: str) -> list[str]:
     return unique_urls
 
 
+# Хосты, у которых query — только трекинг (?share=..., ?utm=...)
+_STRIP_QUERY_HOSTS = ("tiktok.com", "live.vkvideo.ru", "live.vkplay.ru", "vkplay.live")
+
+
 def normalize_url(url: str) -> str:
     """Strip common tracking parameters from URLs."""
     try:
         parsed = urlparse(url)
-        # Simple query param filtering (e.g. for TikTok/Instagram tracking)
-        # Keep basic URL without massive tracking strings
-        if "tiktok.com" in (parsed.hostname or ""):
-            # Strip everything after '?' for TikTok
-            return f"{parsed.scheme}://{parsed.hostname}{parsed.path}"
+        host = (parsed.hostname or "").removeprefix("www.")
+        if any(host == h or host.endswith(f".{h}") for h in _STRIP_QUERY_HOSTS):
+            return f"{parsed.scheme}://{parsed.hostname}{parsed.path.rstrip('/')}"
+        # vk.com/clips-123?z=clip-123_456 -> прямая ссылка на клип
+        if host.endswith(("vk.com", "vk.ru", "vkvideo.ru")):
+            m = re.search(r"[?&]z=(clip|video)(-?\d+_\d+)", url)
+            if m:
+                return f"https://vkvideo.ru/{m.group(1)}{m.group(2)}"
         return url
     except Exception:
         return url
@@ -64,10 +71,10 @@ def identify_platform(url: str) -> str | None:
     return None
 
 
-def _escape_html(text: str) -> str:
+def _escape_html(text: str | None) -> str:
     """Escape HTML special characters for Telegram messages."""
     return (
-        text.replace("&", "&amp;")
+        (text or "").replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
