@@ -3,6 +3,7 @@ import contextlib
 import logging
 import time
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Chat, MessageEntity
@@ -22,20 +23,20 @@ from bot.config import (
     COOLDOWN_SECONDS,
     LOCAL_MODE,
     MAX_FILE_SIZE_BYTES,
-    WARNING_THRESHOLD_BYTES,
     PENDING_URL_TTL,
 )
 from bot.downloader import (
     download_video_async,
     get_video_info,
-    estimate_size,
     has_free_space,
     is_live,
+    first_entry,
     cleanup_file,
     DownloadError,
     FileTooLargeError,
 )
 from bot.media import prepare_video
+from bot.formats import QualityOption, build_options
 from bot.utils import extract_urls, identify_platform, format_file_size, get_file_size, _escape_html
 from bot.stats import stats
 from bot import queue_manager
@@ -49,39 +50,64 @@ UPLOAD_TIMEOUT = 1800
 
 _user_last_request: dict[int, float] = {}
 
-# short_id -> (url, created_at). Обходит лимит callback_data в 64 байта.
-_pending_urls: dict[str, tuple[str, float]] = {}
+@dataclass
+class _Pending:
+    url: str
+    platform: str
+    title: str
+    options: list[QualityOption]
+    created: float = field(default_factory=time.monotonic)
 
 
-def _store_url(url: str) -> str:
+# short_id -> варианты выбора. Короткий id обходит лимит callback_data в 64 байта.
+_pending: dict[str, _Pending] = {}
+
+
+def _store_pending(item: _Pending) -> str:
     now = time.monotonic()
-    for k in [k for k, (_, ts) in _pending_urls.items() if now - ts > PENDING_URL_TTL]:
-        _pending_urls.pop(k, None)
-    short_id = uuid.uuid4().hex[:8]
-    _pending_urls[short_id] = (url, now)
-    return short_id
+    for k in [k for k, v in _pending.items() if now - v.created > PENDING_URL_TTL]:
+        _pending.pop(k, None)
+    sid = uuid.uuid4().hex[:8]
+    _pending[sid] = item
+    return sid
 
 
-def _get_url(short_id: str, pop: bool = False) -> str | None:
-    item = _pending_urls.pop(short_id, None) if pop else _pending_urls.get(short_id)
-    if not item:
+def _take_pending(sid: str) -> _Pending | None:
+    item = _pending.pop(sid, None)  # pop защищает от двойного нажатия
+    if item and time.monotonic() - item.created > PENDING_URL_TTL:
         return None
-    url, ts = item
-    if time.monotonic() - ts > PENDING_URL_TTL:
-        _pending_urls.pop(short_id, None)
-        return None
-    return url
+    return item
 
 
-def _format_keyboard(sid: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("🎬 Video", callback_data=f"dl|v|{sid}"),
-        InlineKeyboardButton("🎵 Audio (MP3)", callback_data=f"dl|a|{sid}"),
-    ]])
+def _quality_keyboard(sid: str, options: list[QualityOption]) -> InlineKeyboardMarkup:
+    video = [o for o in options if not o.audio_only]
+    audio = [o for o in options if o.audio_only]
+    idx = {id(o): i for i, o in enumerate(options)}
+    rows = []
+    # Видео по два в ряд, чтобы подписи с размером влезали на телефоне
+    for i in range(0, len(video), 2):
+        rows.append([InlineKeyboardButton(o.label, callback_data=f"q|{sid}|{idx[id(o)]}")
+                     for o in video[i:i + 2]])
+    for o in audio:
+        rows.append([InlineKeyboardButton(o.label, callback_data=f"q|{sid}|{idx[id(o)]}")])
+    rows.append([InlineKeyboardButton("✖️ Отмена", callback_data=f"x|{sid}|0")])
+    return InlineKeyboardMarkup(rows)
 
 
-def _format_prompt(platform: str) -> str:
-    return f"🎯 <b>Found {platform} link!</b>\nChoose your format:"
+def _quality_prompt(platform: str, title: str, duration: int, hidden: int) -> str:
+    text = f"🎯 <b>{platform}</b>"
+    if title:
+        short = title if len(title) <= 120 else title[:119] + "…"
+        text += f"\n{_escape_html(short)}"
+    if duration:
+        m, s_ = divmod(int(duration), 60)
+        h, m = divmod(m, 60)
+        text += f"\n⏱ {h}:{m:02d}:{s_:02d}" if h else f"\n⏱ {m}:{s_:02d}"
+    text += "\n\nВыберите качество:"
+    if hidden:
+        text += (f"\n<i>Скрыто вариантов: {hidden} — больше лимита "
+                 f"{MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB</i>")
+    return text
 
 
 async def _safe_edit(query, text: str, **kwargs) -> None:
@@ -107,6 +133,12 @@ async def _chat_action(chat: Chat, action: str):
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+
+
+def _size_hint(option: QualityOption) -> str:
+    if not option.size:
+        return ""
+    return f" ({'' if option.exact else '≈'}{format_file_size(option.size)})"
 
 
 def _build_caption(result: dict, platform: str, duration: int, file_size: int) -> str:
@@ -143,7 +175,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "I can download videos from:\n"
         f"<i>{platforms}</i>\n\n"
         "⚡ <b>How to use:</b>\n"
-        "Just send me a link, and I'll ask if you want it as a <b>Video</b> or <b>Audio (MP3)</b>.\n\n"
+        "Just send me a link and pick the quality — every option shows its file size, or choose <b>MP3</b>.\n\n"
         "💡 <i>Tip: You can send multiple links in one message!</i>\n"
         "👤 <i>Need your ID? Use /id</i>"
     )
@@ -159,7 +191,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "📖 <b>Usage Guide</b>\n",
         "1. Copy a URL from a supported site.",
         "2. Paste it here.",
-        "3. Choose the format (Video/Audio).",
+        "3. Pick the quality (resolution + size) or MP3.",
         "4. Wait for the file to be processed.\n",
         "<b>Supported Platforms:</b>",
     ]
@@ -252,38 +284,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             continue
 
-        size, exact = estimate_size(info) if info else (0, False)
-
-        if size and not has_free_space(size):
-            await status_msg.edit_text("❌ Недостаточно места на сервере для этого файла.")
-            continue
-
-        # Отсекаем заранее, только если размер точный (оценка по битрейту может врать)
-        if exact and size > MAX_FILE_SIZE_BYTES:
+        options, hidden = build_options(info, MAX_FILE_SIZE_BYTES)
+        if not options:
             await status_msg.edit_text(
-                f"❌ Файл слишком большой ({format_file_size(size)}), "
-                f"лимит {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB."
+                f"❌ Файл слишком большой: все варианты больше лимита "
+                f"{MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB."
             )
             continue
 
-        sid = _store_url(url)
-
-        if size > WARNING_THRESHOLD_BYTES:
-            approx = "" if exact else "≈"
-            keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton("Да", callback_data=f"conf|y|{sid}"),
-                InlineKeyboardButton("Нет", callback_data=f"conf|n|{sid}"),
-            ]])
-            await status_msg.edit_text(
-                f"⚠️ Файл больше {WARNING_THRESHOLD_BYTES // (1024 * 1024)} MB "
-                f"({approx}{format_file_size(size)}). Продолжить?",
-                reply_markup=keyboard,
-            )
-            continue
-
+        entry = first_entry(info) or {}
+        sid = _store_pending(_Pending(
+            url=url, platform=platform, title=entry.get("title") or "", options=options,
+        ))
         # Переиспользуем сообщение, а не delete + новое
         await status_msg.edit_text(
-            _format_prompt(platform), reply_markup=_format_keyboard(sid), parse_mode=ParseMode.HTML
+            _quality_prompt(platform, entry.get("title") or "", entry.get("duration") or 0, hidden),
+            reply_markup=_quality_keyboard(sid, options),
+            parse_mode=ParseMode.HTML,
         )
 
 
@@ -336,45 +353,39 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.answer()
 
     parts = (query.data or "").split("|")
-    if len(parts) != 3:
+    if len(parts) != 3 or parts[0] not in ("q", "x"):
         return
-    kind, action, sid = parts
+    kind, sid, raw_idx = parts
 
-    # Подтверждение для больших файлов
-    if kind == "conf":
-        if action == "n":
-            _get_url(sid, pop=True)
-            await _safe_edit(query, "Отменено.")
-            return
-        url = _get_url(sid)
-        if not url:
-            await _safe_edit(query, "⚠️ This link has expired. Please send it again.")
-            return
-        await _safe_edit(query, _format_prompt(identify_platform(url) or "Unknown"),
-                         reply_markup=_format_keyboard(sid), parse_mode=ParseMode.HTML)
+    item = _take_pending(sid)
+    if kind == "x":
+        await _safe_edit(query, "Отменено.")
         return
-
-    if kind != "dl":
+    if not item:
+        await _safe_edit(query, "⚠️ Выбор устарел. Отправьте ссылку ещё раз.")
+        return
+    try:
+        option = item.options[int(raw_idx)]
+    except (ValueError, IndexError):
+        await _safe_edit(query, "⚠️ Неизвестный вариант. Отправьте ссылку ещё раз.")
         return
 
-    audio_only = action == "a"
+    url, platform = item.url, item.platform
+    audio_only = option.audio_only
     user_id = update.effective_user.id
 
-    url = _get_url(sid, pop=True)  # pop защищает от двойного нажатия
-    if not url:
-        await _safe_edit(query, "⚠️ This link has expired. Please send it again.")
+    if option.size and not has_free_space(option.size):
+        await _safe_edit(query, "❌ Недостаточно места на сервере для этого варианта.")
         return
 
-    platform = identify_platform(url) or "Unknown"
     # Отвечаем на исходное сообщение пользователя, а не на удаляемое служебное
     original = query.message.reply_to_message
     reply_to = original.message_id if original else None
 
     await _safe_edit(
         query,
-        f"⏳ Processing <b>{platform}</b>...\n"
-        f"Format: {'🎵 Audio' if audio_only else '🎬 Video'}\n"
-        "<i>Waiting for a download slot...</i>",
+        f"⏳ <b>{platform}</b> · {option.short}{_size_hint(option)}\n"
+        "<i>Ожидание слота загрузки...</i>",
         parse_mode=ParseMode.HTML,
     )
 
@@ -387,11 +398,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         acquired = True
         stats.record_attempt()
 
-        await _safe_edit(query, f"📥 Downloading from <b>{platform}</b>...", parse_mode=ParseMode.HTML)
+        await _safe_edit(query, f"📥 Скачиваю <b>{platform}</b> · {option.short}{_size_hint(option)}...",
+                         parse_mode=ParseMode.HTML)
 
         async with _chat_action(query.message.chat, chat_action):
-            logger.info("Starting download: %s (audio_only=%s)", url, audio_only)
-            result = await download_video_async(url, audio_only=audio_only)
+            logger.info("Starting download: %s (%s, selector=%s)", url, option.short, option.selector)
+            result = await download_video_async(url, audio_only=audio_only,
+                                                format_selector=option.selector)
             file_path = result["file_path"]
             duration = int(result.get("duration") or 0)
 

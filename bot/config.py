@@ -26,6 +26,17 @@ ADMIN_IDS: list[int] = [int(x.strip()) for x in _admin_raw.split(",") if x.strip
 COOKIES_FILE: str = os.getenv("COOKIES_FILE", "")
 VK_COOKIES_FILE: str = os.getenv("VK_COOKIES_FILE", "")
 
+# --- Network ---
+# Прокси для yt-dlp: http://host:port, socks5://user:pass@host:port
+PROXY: str = os.getenv("PROXY", "").strip()          # для всех платформ
+VK_PROXY: str = os.getenv("VK_PROXY", "").strip()    # только vk.com / vk.ru / vkvideo.ru (перекрывает PROXY)
+# Принудительно IPv4 (если IPv6 в контейнере «чёрная дыра» и коннекты висят до таймаута)
+FORCE_IPV4: bool = _bool("FORCE_IPV4", False)
+# Куда слать API-запросы VK-экстракторов yt-dlp вместо vk.com (например vk.ru)
+VK_API_HOST: str = os.getenv("VK_API_HOST", "").strip()
+# Таймаут сокета yt-dlp, сек
+SOCKET_TIMEOUT: int = int(os.getenv("SOCKET_TIMEOUT", "30"))
+
 # LOCAL BOT API
 BOT_API_URL: str = os.getenv("BOT_API_URL", "").strip()
 # local_mode: бот передаёт серверу путь к файлу вместо HTTP-загрузки.

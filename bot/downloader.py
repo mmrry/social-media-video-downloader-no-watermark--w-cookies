@@ -20,10 +20,20 @@ from bot.config import (
     VK_COOKIES_FILE,
     DISK_RESERVE_BYTES,
     PREFER_H264,
+    PROXY,
+    VK_PROXY,
+    FORCE_IPV4,
+    VK_API_HOST,
+    SOCKET_TIMEOUT,
 )
 from bot.vk_live import VKVideoLiveClipIE
+from bot.ytdlp_patches import apply_vk_host_patch
 
 logger = logging.getLogger(__name__)
+
+apply_vk_host_patch(VK_API_HOST)
+
+_VK_DOMAINS = ("vk.com", "vk.ru", "vkvideo.ru")
 
 _ID_RE = re.compile(r"^[0-9a-f]{12}\.")
 _SIDECAR_SUFFIXES = (".part", ".ytdl", ".jpg", ".jpeg", ".webp", ".png", ".json")
@@ -131,11 +141,17 @@ def _cookie_file(url: str) -> Iterator[str | None]:
         Path(tmp).unlink(missing_ok=True)
 
 
-def _base_opts(audio_only: bool, cookiefile: str | None) -> dict[str, Any]:
+def _proxy_for(url: str) -> str:
+    host = (urlparse(url).hostname or "").removeprefix("www.")
+    is_vk = any(host == d or host.endswith(f".{d}") for d in _VK_DOMAINS) and not host.startswith("live.")
+    return (VK_PROXY if is_vk and VK_PROXY else PROXY) or ""
+
+
+def _base_opts(url: str, audio_only: bool, cookiefile: str | None) -> dict[str, Any]:
     opts: dict[str, Any] = {
         "noplaylist": True,          # ссылка watch?v=..&list=.. -> только видео
         "playlist_items": "1",       # плейлист/карусель -> только первый элемент
-        "socket_timeout": 60,
+        "socket_timeout": SOCKET_TIMEOUT,
         "retries": 10,
         "fragment_retries": 15,
         "geo_bypass": True,
@@ -146,6 +162,11 @@ def _base_opts(audio_only: bool, cookiefile: str | None) -> dict[str, Any]:
     }
     if cookiefile:
         opts["cookiefile"] = cookiefile
+    proxy = _proxy_for(url)
+    if proxy:
+        opts["proxy"] = proxy
+    if FORCE_IPV4:
+        opts["source_address"] = "0.0.0.0"
 
     if audio_only:
         opts["format"] = "bestaudio/best"
@@ -164,7 +185,7 @@ def get_video_info(url: str) -> dict:
     """Метаданные без скачивания, с тем же выбором формата, что и при загрузке."""
     try:
         with _cookie_file(url) as cookiefile:
-            opts = {**_base_opts(False, cookiefile), "quiet": True, "no_warnings": True,
+            opts = {**_base_opts(url, False, cookiefile), "quiet": True, "no_warnings": True,
                     "skip_download": True}
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = _extract(ydl, url, download=False)
@@ -246,12 +267,14 @@ def cleanup_by_id(file_id: str) -> None:
             logger.warning("Failed to remove %s: %s", p, e)
 
 
-def download_video(url: str, audio_only: bool = False) -> dict[str, Any]:
+def download_video(url: str, audio_only: bool = False, format_selector: str | None = None) -> dict[str, Any]:
     """Синхронная загрузка (запускается в потоке)."""
     file_id = uuid.uuid4().hex[:12]
     try:
         with _cookie_file(url) as cookiefile:
-            opts = _base_opts(audio_only, cookiefile)
+            opts = _base_opts(url, audio_only, cookiefile)
+            if format_selector and not audio_only:
+                opts["format"] = format_selector  # выбор пользователя; format_sort остаётся для fallback'ов
             opts.update({
                 "outtmpl": str(DOWNLOAD_DIR / f"{file_id}.%(ext)s"),
                 "max_filesize": MAX_FILE_SIZE_BYTES,
@@ -320,8 +343,10 @@ def download_video(url: str, audio_only: bool = False) -> dict[str, Any]:
         raise DownloadError(f"Technical error: {e}") from e
 
 
-async def download_video_async(url: str, audio_only: bool = False) -> dict[str, Any]:
-    return await asyncio.to_thread(download_video, url, audio_only)
+async def download_video_async(
+    url: str, audio_only: bool = False, format_selector: str | None = None
+) -> dict[str, Any]:
+    return await asyncio.to_thread(download_video, url, audio_only, format_selector)
 
 
 # ───────────────────────────── cleanup ─────────────────────────────
