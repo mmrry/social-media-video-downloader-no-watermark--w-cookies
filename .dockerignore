@@ -2,6 +2,7 @@
 node_modules
 logs
 *.log
+# секреты и рабочие данные не должны попадать в build context
 .env
 *cookies*.txt
 downloads/
