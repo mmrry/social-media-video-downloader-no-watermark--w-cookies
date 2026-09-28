@@ -7,7 +7,7 @@ from telegram.ext import ApplicationBuilder
 
 from bot.config import BOT_TOKEN, BOT_API_URL, LOCAL_MODE
 from bot.downloader import purge_stale_downloads
-from bot.handlers import get_handlers
+from bot.handlers import get_handlers, error_handler
 
 logging.basicConfig(
     format="%(asctime)s | %(name)-20s | %(levelname)-7s | %(message)s",
@@ -61,6 +61,7 @@ def main() -> None:
     app = builder.post_init(post_init).build()
     for handler in get_handlers():
         app.add_handler(handler)
+    app.add_error_handler(error_handler)
 
     logger.info("Bot is ready. Polling for messages...")
     time.sleep(3)  # дать telegram-bot-api подняться; при неудаче спасёт restart: unless-stopped

@@ -4,21 +4,36 @@ from urllib.parse import urlparse
 from bot.config import SUPPORTED_PLATFORMS
 
 
-# Compiled regex to extract URLs from text
+# URL со схемой
 URL_REGEX = re.compile(
     r"https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}"
     r"\b[-a-zA-Z0-9()@:%_\+.~#?&//=]*",
     re.IGNORECASE,
 )
 
+# URL без схемы, но только для поддерживаемых доменов: «vk.ru/clip1_2», «m.tiktok.com/...»
+_ALL_DOMAINS = sorted({d for ds in SUPPORTED_PLATFORMS.values() for d in ds}, key=len, reverse=True)
+BARE_URL_REGEX = re.compile(
+    r"(?<![\w@/.:-])(?:www\.)?(?:[\w-]+\.)*(?:"
+    + "|".join(re.escape(d) for d in _ALL_DOMAINS)
+    + r")/[^\s<>\"'«»]+",
+    re.IGNORECASE,
+)
+
+_TRAILING_PUNCT = ".,;:!?)]}»\"'"
+
 
 def extract_urls(text: str) -> list[str]:
-    """Extract all distinct normalized URLs from a text message."""
-    raw_urls = URL_REGEX.findall(text)
-    # Remove duplicates while preserving order
+    """Extract all distinct normalized URLs (with or without scheme) from text."""
+    found = URL_REGEX.findall(text)
+    # Схемные URL вырезаем, чтобы bare-регулярка не нашла их хвосты повторно
+    rest = URL_REGEX.sub(" ", text)
+    found += [f"https://{u}" for u in BARE_URL_REGEX.findall(rest)]
+
     seen = set()
     unique_urls = []
-    for url in raw_urls:
+    for url in found:
+        url = url.rstrip(_TRAILING_PUNCT)
         norm = normalize_url(url)
         if norm not in seen:
             seen.add(norm)

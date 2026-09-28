@@ -5,8 +5,8 @@ import time
 import uuid
 from pathlib import Path
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Chat
-from telegram.constants import ChatAction, ParseMode
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Chat, MessageEntity
+from telegram.constants import ChatAction, ChatType, ParseMode
 from telegram.error import TelegramError
 from telegram.ext import (
     ContextTypes,
@@ -187,31 +187,51 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 # ───────────────────────────── links ─────────────────────────────
 
+def _message_urls(message) -> list[str]:
+    """URL из текста/подписи + из entities (включая скрытые гиперссылки text_link)."""
+    kinds = [MessageEntity.URL, MessageEntity.TEXT_LINK]
+    entities = {**message.parse_entities(kinds), **message.parse_caption_entities(kinds)}
+    parts = [message.text or message.caption or ""]
+    for ent, value in entities.items():
+        parts.append(ent.url if ent.type == MessageEntity.TEXT_LINK and ent.url else value)
+    return extract_urls("\n".join(p for p in parts if p))
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.message.text:
+    message = update.message
+    if not message or not (message.text or message.caption):
         return
 
     user_id = update.effective_user.id
     stats.record_user(user_id)
 
-    urls = extract_urls(update.message.text.strip())
+    urls = _message_urls(message)
     if not urls:
+        return
+
+    supported = [u for u in urls if identify_platform(u)]
+    logger.info("Links from %s: %s (supported: %d)", user_id, urls, len(supported))
+    if not supported:
+        # В группах молчим, чтобы не спамить; в личке объясняем
+        if message.chat.type == ChatType.PRIVATE:
+            await message.reply_text(
+                "🤷 Эта ссылка не поддерживается. Список платформ — /help",
+                reply_to_message_id=message.message_id,
+            )
         return
 
     now = time.monotonic()
     last = _user_last_request.get(user_id, 0.0)
     if now - last < COOLDOWN_SECONDS:
-        await update.message.reply_text(f"⏳ Slow down! Wait {int(COOLDOWN_SECONDS - (now - last)) + 1}s.")
+        await message.reply_text(f"⏳ Slow down! Wait {int(COOLDOWN_SECONDS - (now - last)) + 1}s.")
         return
     _user_last_request[user_id] = now
 
-    for url in urls[:3]:
+    for url in supported[:3]:
         platform = identify_platform(url)
-        if not platform:
-            continue
 
-        status_msg = await update.message.reply_text(
-            "🔍 Анализирую ссылку...", reply_to_message_id=update.message.message_id
+        status_msg = await message.reply_text(
+            "🔍 Анализирую ссылку...", reply_to_message_id=message.message_id
         )
 
         try:
@@ -420,6 +440,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await queue_manager.release(user_id)
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Любое необработанное исключение — в лог с трейсбеком и короткий ответ пользователю."""
+    logger.error("Unhandled error while processing update", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_message:
+        with contextlib.suppress(TelegramError):
+            await update.effective_message.reply_text("❌ Внутренняя ошибка, попробуйте ещё раз.")
+
+
 # ─────────────────────── Handler Registration ────────────────────
 
 def get_handlers() -> list:
@@ -429,6 +457,7 @@ def get_handlers() -> list:
         CommandHandler("help", help_command),
         CommandHandler("status", status_command),
         CommandHandler("stats", stats_command),
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
+        # CAPTION — ссылки в подписях к пересланным видео/фото
+        MessageHandler((filters.TEXT | filters.CAPTION) & ~filters.COMMAND, handle_message),
         CallbackQueryHandler(handle_callback),
     ]
