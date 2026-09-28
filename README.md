@@ -38,6 +38,26 @@ yt-dlp из коробки не знает клипы VK Video Live, поэто�
 Ссылки на okcdn подписаны и живут ограниченное время — поэтому страница
 запрашивается заново и при предпроверке, и при загрузке.
 
+## Выбор качества
+
+После анализа ссылки бот показывает кнопки со всеми доступными разрешениями
+и размером каждого варианта, плюс MP3 и «Отмена»:
+
+```
+[ 🎬 1080p60 · 324.0 MB ] [ 🎬 720p · 123.7 MB ]
+[ 🎬 480p · ≈80.8 MB    ] [ 🎬 360p · ≈42.9 MB  ]
+[ 🎵 MP3 · ≈13.7 MB ]
+[ ✖️ Отмена ]
+```
+
+* `≈` — размер оценён по битрейту (площадка не отдала точный);
+* ⚠️ — больше `WARNING_THRESHOLD_MB`;
+* варианты больше `MAX_FILE_SIZE_MB` скрываются (в сообщении видно, сколько);
+* на каждое разрешение — лучший формат, с приоритетом H.264 (`PREFER_H264`),
+  чтобы в Telegram было превью без транскода;
+* селектор с fallback'ами: если ссылки форматов успели протухнуть, берётся
+  ближайшее разрешение не выше выбранного.
+
 ## Как бот готовит видео для Telegram
 
 Без этого Telegram показывает «чёрный квадрат»:
@@ -64,6 +84,20 @@ chmod 600 cookies.txt
 
 > Если файла `cookies.txt` на хосте нет, Docker создаст вместо него **директорию**.
 > Создайте файл заранее: `touch cookies.txt`.
+
+## Сеть: vk.com недоступен
+
+VK-экстрактор yt-dlp всегда ходит в API на `https://vk.com/al_video.php`,
+даже для ссылок `vk.ru` / `vkvideo.ru`. Если в логе `Connection to vk.com timed out`:
+
+| Ситуация | Настройка |
+|---|---|
+| IPv6 не работает, IPv4 работает | `FORCE_IPV4=1` |
+| vk.com недоступен, vk.ru доступен | `VK_API_HOST=vk.ru` |
+| VK недоступен вовсе | `VK_PROXY=socks5://host:port` (или `PROXY` для всех платформ) |
+
+Cookies VK выгружаются для того домена, куда реально идут запросы
+(при `VK_API_HOST=vk.ru` — с `https://vk.ru/`).
 
 ## Docker
 
@@ -100,7 +134,7 @@ Extractor'ы часто ломаются: пересобирайте образ 
 | `BOT_API_URL` | — | URL локального Bot API (в compose задан) |
 | `TELEGRAM_LOCAL_MODE` | `1` при `BOT_API_URL` | Отправка файлов по локальному пути |
 | `MAX_FILE_SIZE_MB` | `2000` / `50` | Лимит (локальный / облачный Bot API) |
-| `WARNING_THRESHOLD_MB` | `1024` | Порог подтверждения для больших файлов |
+| `WARNING_THRESHOLD_MB` | `1024` | Варианты больше порога помечаются ⚠️ |
 | `DISK_RESERVE_MB` | `100` | Минимум свободного места |
 | `DOWNLOAD_DIR` | `./downloads` | Временная папка |
 | `ADMIN_IDS` | — | ID админов для `/stats` |
@@ -111,7 +145,11 @@ Extractor'ы часто ломаются: пересобирайте образ 
 | `TRANSCODE_MAX_MB` | `300` | Максимальный размер для транскода |
 | `COOLDOWN_SECONDS` | `5` | Кулдаун на пользователя |
 | `MAX_CONCURRENT_DOWNLOADS` | `3` | Параллельных загрузок всего |
-| `PENDING_URL_TTL` | `3600` | Время жизни кнопок выбора формата, сек |
+| `PENDING_URL_TTL` | `3600` | Время жизни кнопок выбора качества, сек |
+| `VK_API_HOST` | — | Хост вместо vk.com для API VK (напр. `vk.ru`) |
+| `PROXY` / `VK_PROXY` | — | Прокси yt-dlp для всех / только для VK |
+| `FORCE_IPV4` | `0` | Только IPv4 |
+| `SOCKET_TIMEOUT` | `30` | Таймаут сокета yt-dlp, сек |
 
 ## Architecture
 
@@ -121,7 +159,9 @@ bot/
 ├── config.py         # Environment-based configuration
 ├── handlers.py       # Telegram command, message & callback handlers
 ├── downloader.py     # yt-dlp wrapper: formats, cookies, size checks, cleanup
+├── formats.py        # варианты качества с размерами для кнопок
 ├── vk_live.py        # yt-dlp extractor: VK Video Live clips (моменты)
+├── ytdlp_patches.py  # runtime-патчи yt-dlp (VK_API_HOST)
 ├── media.py          # ffprobe, faststart/H.264, thumbnails for Telegram
 ├── queue_manager.py  # Global / per-user download slots
 ├── stats.py          # In-memory statistics
@@ -130,7 +170,6 @@ bot/
 
 ## TODO
 
-* Выбор качества перед загрузкой
 * kick.com/<user>/clips/
 * Instagram-карусели: сейчас скачивается только первый элемент
 * Персистентная статистика (json/sqlite: ссылка, UID, статус)
