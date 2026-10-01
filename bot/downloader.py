@@ -247,16 +247,23 @@ def _make_guard_hook() -> Callable[[dict], None]:
     return hook
 
 
-def _find_output(file_id: str, audio_only: bool) -> Path | None:
+def _find_output(file_id: str, prefer: str) -> Path | None:
     candidates = sorted(
         p for p in DOWNLOAD_DIR.glob(f"{file_id}.*")
         if p.is_file() and not p.name.endswith(_SIDECAR_SUFFIXES)
     )
-    prefer = ".mp3" if audio_only else ".mp4"
     for p in candidates:
-        if p.suffix == prefer:
+        if prefer and p.suffix == prefer:
             return p
     return candidates[0] if candidates else None
+
+
+def _find_cover(file_id: str) -> str | None:
+    for ext in (".jpg", ".jpeg", ".png", ".webp"):
+        p = DOWNLOAD_DIR / f"{file_id}{ext}"
+        if p.is_file():
+            return str(p)
+    return None
 
 
 def cleanup_by_id(file_id: str) -> None:
@@ -267,13 +274,21 @@ def cleanup_by_id(file_id: str) -> None:
             logger.warning("Failed to remove %s: %s", p, e)
 
 
-def download_video(url: str, audio_only: bool = False, format_selector: str | None = None) -> dict[str, Any]:
+AUDIO_EXTS = {"mp3": ".mp3", "m4a": ".m4a"}
+
+
+def download_video(
+    url: str,
+    audio_only: bool = False,
+    format_selector: str | None = None,
+    audio_format: str = "mp3",
+) -> dict[str, Any]:
     """Синхронная загрузка (запускается в потоке)."""
     file_id = uuid.uuid4().hex[:12]
     try:
         with _cookie_file(url) as cookiefile:
             opts = _base_opts(url, audio_only, cookiefile)
-            if format_selector and not audio_only:
+            if format_selector:
                 opts["format"] = format_selector  # выбор пользователя; format_sort остаётся для fallback'ов
             opts.update({
                 "outtmpl": str(DOWNLOAD_DIR / f"{file_id}.%(ext)s"),
@@ -284,11 +299,18 @@ def download_video(url: str, audio_only: bool = False, format_selector: str | No
                 "match_filter": yt_dlp.utils.match_filter_func("!is_live"),
             })
             if audio_only:
-                opts["postprocessors"].append({
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                })
+                if audio_format in AUDIO_EXTS:
+                    # Если исходник уже в нужном кодеке — yt-dlp копирует поток без перекодирования
+                    opts["postprocessors"].append({
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": audio_format,
+                        "preferredquality": "192",
+                    })
+                # Теги title/artist в файл + обложка отдельным jpg для Telegram
+                opts["postprocessors"].append({"key": "FFmpegMetadata", "add_metadata": True})
+                opts["writethumbnail"] = True
+                opts["postprocessors"].append(
+                    {"key": "FFmpegThumbnailsConvertor", "format": "jpg", "when": "before_dl"})
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = _extract(ydl, url, download=True)
 
@@ -296,7 +318,7 @@ def download_video(url: str, audio_only: bool = False, format_selector: str | No
         if entry is None:
             raise DownloadError("Could not extract video information.")
 
-        path = _find_output(file_id, audio_only)
+        path = _find_output(file_id, AUDIO_EXTS.get(audio_format, "") if audio_only else ".mp4")
         if path is None and is_live(entry):
             raise DownloadError("Это прямая трансляция — скачиваются только записи и клипы.")
         if path is None:
@@ -325,6 +347,9 @@ def download_video(url: str, audio_only: bool = False, format_selector: str | No
             "width": entry.get("width") or 0,
             "height": entry.get("height") or 0,
             "audio_only": audio_only,
+            "audio_format": audio_format if audio_only else None,
+            "cover": _find_cover(file_id) if audio_only else None,
+            "artist": entry.get("artist") or entry.get("uploader"),
         }
 
     except (FileTooLargeError, DownloadError):
@@ -344,9 +369,9 @@ def download_video(url: str, audio_only: bool = False, format_selector: str | No
 
 
 async def download_video_async(
-    url: str, audio_only: bool = False, format_selector: str | None = None
+    url: str, audio_only: bool = False, format_selector: str | None = None, audio_format: str = "mp3",
 ) -> dict[str, Any]:
-    return await asyncio.to_thread(download_video, url, audio_only, format_selector)
+    return await asyncio.to_thread(download_video, url, audio_only, format_selector, audio_format)
 
 
 # ───────────────────────────── cleanup ─────────────────────────────

@@ -10,6 +10,7 @@
 Здесь: ffprobe (размеры с учётом поворота), faststart-remux,
 опциональный транскод в H.264 и генерация JPEG-превью <=320px, <200KB.
 """
+import contextlib
 import json
 import logging
 import struct
@@ -41,6 +42,50 @@ class VideoMeta:
     height: int = 0
     duration: int = 0
     vcodec: str = ""
+
+
+_COMMON_RATIOS = [(9, 16), (16, 9), (1, 1), (4, 5), (4, 3), (3, 4), (21, 9), (2, 3), (3, 2)]
+
+
+def ratio_label(width: int, height: int) -> str:
+    """1920x1080 -> '16:9', 1080x1350 -> '4:5', иначе '1.85:1'."""
+    if not width or not height:
+        return "?"
+    r = width / height
+    for rw, rh in _COMMON_RATIOS:
+        if abs(r - rw / rh) / (rw / rh) < 0.03:
+            return f"{rw}:{rh}"
+    return f"{r:.2f}:1"
+
+
+def probe_url(url: str, headers: dict | None = None, timeout: int = 20) -> tuple[int, int]:
+    """
+    Реальные размеры кадра (с учётом поворота) по ссылке на поток/файл — читаются
+    только заголовки. Для площадок, которые не отдают width/height в метаданных.
+    """
+    cmd = ["ffprobe", "-v", "error", "-rw_timeout", str(timeout * 1_000_000)]
+    if headers:
+        cmd += ["-headers", "".join(f"{k}: {v}\r\n" for k, v in headers.items())]
+    cmd += ["-select_streams", "v:0",
+            "-show_entries", "stream=width,height:stream_tags=rotate:stream_side_data=rotation",
+            "-of", "json", url]
+    try:
+        data = json.loads(_run(cmd, timeout + 5).stdout or "{}")
+        s = (data.get("streams") or [{}])[0]
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError, IndexError) as e:
+        logger.info("probe_url failed: %s", e)
+        return 0, 0
+    w, h = int(s.get("width") or 0), int(s.get("height") or 0)
+    rotation = 0
+    try:
+        rotation = int(float((s.get("tags") or {}).get("rotate", 0)))
+    except (TypeError, ValueError):
+        pass
+    for sd in s.get("side_data_list") or []:
+        if "rotation" in sd:
+            with contextlib.suppress(TypeError, ValueError):
+                rotation = int(float(sd["rotation"]))
+    return (h, w) if abs(rotation) % 180 == 90 else (w, h)
 
 
 @dataclass
@@ -159,12 +204,42 @@ def make_thumbnail(path: Path, duration: int) -> Path | None:
     return None
 
 
+def make_cover(image_path: str | None) -> bytes | None:
+    """Обложка аудио для Telegram: JPEG <=320px, <200 KB. Синхронно (to_thread)."""
+    if not image_path or not Path(image_path).is_file():
+        return None
+    src = Path(image_path)
+    out = src.with_name(f"{src.stem}.cover.jpg")
+    vf = f"scale={THUMB_MAX_SIDE}:{THUMB_MAX_SIDE}:force_original_aspect_ratio=decrease"
+    try:
+        for q in (3, 6, 12):
+            out.unlink(missing_ok=True)
+            _run(["ffmpeg", "-y", "-v", "error", "-i", str(src), "-frames:v", "1",
+                  "-vf", vf, "-q:v", str(q), str(out)], 30)
+            if out.exists() and 0 < out.stat().st_size <= THUMB_MAX_BYTES:
+                return out.read_bytes()
+    except subprocess.SubprocessError as e:
+        logger.warning("cover conversion failed: %s", e)
+    finally:
+        out.unlink(missing_ok=True)
+    return None
+
+
+def _replace_with(path: Path, tmp: Path) -> Path:
+    final = path.with_suffix(".mp4")
+    if final != path:
+        path.unlink(missing_ok=True)
+    tmp.replace(final)
+    return final
+
+
 def prepare_video(file_path: str) -> PreparedVideo:
     """Синхронная функция — вызывать через asyncio.to_thread."""
     path = Path(file_path)
     try:
         meta = probe(path)
         size = path.stat().st_size
+
 
         need_transcode = (
             TRANSCODE_NON_H264
@@ -180,11 +255,7 @@ def prepare_video(file_path: str) -> PreparedVideo:
             logger.info("%s %s (vcodec=%s)", "Transcoding" if need_transcode else "Remuxing",
                         path.name, meta.vcodec)
             if _ffmpeg_to(path, tmp, args, timeout):
-                final = path.with_suffix(".mp4")
-                if final != path:
-                    path.unlink(missing_ok=True)
-                tmp.replace(final)
-                path = final
+                path = _replace_with(path, tmp)
                 meta = probe(path)
 
         return PreparedVideo(path, meta, make_thumbnail(path, meta.duration))

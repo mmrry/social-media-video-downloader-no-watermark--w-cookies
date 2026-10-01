@@ -42,7 +42,8 @@ def extract_urls(text: str) -> list[str]:
 
 
 # Хосты, у которых query — только трекинг (?share=..., ?utm=...)
-_STRIP_QUERY_HOSTS = ("tiktok.com", "live.vkvideo.ru", "live.vkplay.ru", "vkplay.live")
+# SoundCloud: ?si=/utm_* — трекинг; secret-токен приватного трека лежит в пути (/s-XXXX)
+_STRIP_QUERY_HOSTS = ("tiktok.com", "live.vkvideo.ru", "live.vkplay.ru", "vkplay.live", "soundcloud.com")
 
 
 def normalize_url(url: str) -> str:

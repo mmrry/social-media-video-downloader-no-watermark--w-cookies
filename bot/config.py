@@ -89,5 +89,6 @@ SUPPORTED_PLATFORMS: dict[str, list[str]] = {
     "VK Video Live": ["live.vkvideo.ru", "live.vkplay.ru", "vkplay.live"],  # клипы (моменты), записи
     "VK":          ["vk.com", "vk.ru", "vkvideo.ru"],  # видео и клипы
     "RuTube":      ["rutube.ru"],
+    "SoundCloud":  ["soundcloud.com", "on.soundcloud.com", "m.soundcloud.com"],  # только аудио
     # "Threads":   ["threads.net", "threads.com"],  # yt-dlp not supported threads.com
 }

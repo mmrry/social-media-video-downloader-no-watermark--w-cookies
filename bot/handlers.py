@@ -35,8 +35,9 @@ from bot.downloader import (
     DownloadError,
     FileTooLargeError,
 )
-from bot.media import prepare_video
-from bot.formats import QualityOption, build_options
+from bot.media import prepare_video, make_cover, ratio_label
+from bot.formats import (QualityOption, build_options, ensure_dimensions, source_dims,
+                         available_ratios, ORIENT_NAME)
 from bot.utils import extract_urls, identify_platform, format_file_size, get_file_size, _escape_html
 from bot.stats import stats
 from bot import queue_manager
@@ -56,6 +57,10 @@ class _Pending:
     platform: str
     title: str
     options: list[QualityOption]
+    duration: int = 0
+    hidden: int = 0
+    dims: tuple[int, int] = (0, 0)
+    ratios: list = field(default_factory=list)
     created: float = field(default_factory=time.monotonic)
 
 
@@ -72,9 +77,11 @@ def _store_pending(item: _Pending) -> str:
     return sid
 
 
-def _take_pending(sid: str) -> _Pending | None:
-    item = _pending.pop(sid, None)  # pop защищает от двойного нажатия
+def _get_pending(sid: str, pop: bool = False) -> _Pending | None:
+    # pop на финальном шаге защищает от двойного нажатия
+    item = _pending.pop(sid, None) if pop else _pending.get(sid)
     if item and time.monotonic() - item.created > PENDING_URL_TTL:
+        _pending.pop(sid, None)
         return None
     return item
 
@@ -84,17 +91,18 @@ def _quality_keyboard(sid: str, options: list[QualityOption]) -> InlineKeyboardM
     audio = [o for o in options if o.audio_only]
     idx = {id(o): i for i, o in enumerate(options)}
     rows = []
-    # Видео по два в ряд, чтобы подписи с размером влезали на телефоне
-    for i in range(0, len(video), 2):
-        rows.append([InlineKeyboardButton(o.label, callback_data=f"q|{sid}|{idx[id(o)]}")
-                     for o in video[i:i + 2]])
+    # По одному в строке: «1080p60 · 16:9 · 324.0 MB» не влезает по два на телефоне
+    for o in video:
+        rows.append([InlineKeyboardButton(o.label, callback_data=f"q|{sid}|{idx[id(o)]}")])
     for o in audio:
         rows.append([InlineKeyboardButton(o.label, callback_data=f"q|{sid}|{idx[id(o)]}")])
     rows.append([InlineKeyboardButton("✖️ Отмена", callback_data=f"x|{sid}|0")])
     return InlineKeyboardMarkup(rows)
 
 
-def _quality_prompt(platform: str, title: str, duration: int, hidden: int) -> str:
+def _quality_prompt(platform: str, title: str, duration: int, hidden: int,
+                    dims: tuple[int, int] = (0, 0),
+                    ratios: list[tuple[str, str]] | None = None) -> str:
     text = f"🎯 <b>{platform}</b>"
     if title:
         short = title if len(title) <= 120 else title[:119] + "…"
@@ -103,6 +111,14 @@ def _quality_prompt(platform: str, title: str, duration: int, hidden: int) -> st
         m, s_ = divmod(int(duration), 60)
         h, m = divmod(m, 60)
         text += f"\n⏱ {h}:{m:02d}:{s_:02d}" if h else f"\n⏱ {m}:{s_:02d}"
+    w, h = dims
+    if ratios and len(ratios) > 1:
+        # Площадка отдаёт несколько версий кадра (Twitch: обычная + вертикальная)
+        text += "\n📐 Есть версии: " + " и ".join(
+            f"{r} ({ORIENT_NAME.get(o, '?')})" for r, o in ratios)
+    elif w and h:
+        orient = "вертикальное" if h > w else "горизонтальное" if w > h else "квадратное"
+        text += f"\n📐 {ratio_label(w, h)} · {orient} · {w}×{h}"
     text += "\n\nВыберите качество:"
     if hidden:
         text += (f"\n<i>Скрыто вариантов: {hidden} — больше лимита "
@@ -141,7 +157,8 @@ def _size_hint(option: QualityOption) -> str:
     return f" ({'' if option.exact else '≈'}{format_file_size(option.size)})"
 
 
-def _build_caption(result: dict, platform: str, duration: int, file_size: int) -> str:
+def _build_caption(result: dict, platform: str, duration: int, file_size: int,
+                   dims: tuple[int, int] = (0, 0)) -> str:
     title = result.get("title") or "Video"
     if len(title) > TITLE_LIMIT:
         title = title[:TITLE_LIMIT - 1] + "…"
@@ -155,6 +172,8 @@ def _build_caption(result: dict, platform: str, duration: int, file_size: int) -
         mins, secs = divmod(int(duration), 60)
         caption += f"  ⏱ {mins}:{secs:02d}"
     caption += f"\n📦 {format_file_size(file_size)}"
+    if dims[0] and dims[1]:
+        caption += f"  📐 {ratio_label(*dims)} · {dims[0]}×{dims[1]}"
     return caption[:CAPTION_LIMIT]
 
 
@@ -284,7 +303,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             continue
 
+        # Размеры кадра: из метаданных, а если площадка их не отдала — ffprobe по потоку
+        if info:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(ensure_dimensions, info)
         options, hidden = build_options(info, MAX_FILE_SIZE_BYTES)
+        dims = source_dims(info) if info else (0, 0)
         if not options:
             await status_msg.edit_text(
                 f"❌ Файл слишком большой: все варианты больше лимита "
@@ -295,10 +319,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         entry = first_entry(info) or {}
         sid = _store_pending(_Pending(
             url=url, platform=platform, title=entry.get("title") or "", options=options,
+            duration=int(entry.get("duration") or 0), hidden=hidden, dims=dims,
+            ratios=available_ratios(options),
         ))
         # Переиспользуем сообщение, а не delete + новое
         await status_msg.edit_text(
-            _quality_prompt(platform, entry.get("title") or "", entry.get("duration") or 0, hidden),
+            _quality_prompt(platform, entry.get("title") or "", entry.get("duration") or 0, hidden, dims,
+                            available_ratios(options)),
             reply_markup=_quality_keyboard(sid, options),
             parse_mode=ParseMode.HTML,
         )
@@ -331,21 +358,35 @@ async def _send_video(query, prepared, caption: str, duration: int, reply_to: in
         )
 
 
+# Эти форматы Telegram показывает в аудиоплеере; остальное (wav, flac, opus...) — документом
+_TG_AUDIO_EXTS = {".mp3", ".m4a"}
+
+
 async def _send_audio(query, path: Path, caption: str, result: dict, duration: int,
                       reply_to: int | None) -> None:
+    cover = await asyncio.to_thread(make_cover, result.get("cover"))
+    common = dict(
+        caption=caption,
+        parse_mode=ParseMode.HTML,
+        reply_to_message_id=reply_to,
+        allow_sending_without_reply=True,
+        read_timeout=UPLOAD_TIMEOUT,
+        write_timeout=UPLOAD_TIMEOUT,
+    )
+    if cover:
+        common["thumbnail"] = cover
     with contextlib.ExitStack() as stack:
-        await query.message.chat.send_audio(
-            audio=_media_input(path, stack),
-            caption=caption,
-            title=(result.get("title") or "Audio")[:TITLE_LIMIT],
-            performer=result.get("uploader") or None,
-            duration=duration or None,
-            parse_mode=ParseMode.HTML,
-            reply_to_message_id=reply_to,
-            allow_sending_without_reply=True,
-            read_timeout=UPLOAD_TIMEOUT,
-            write_timeout=UPLOAD_TIMEOUT,
-        )
+        media = _media_input(path, stack)
+        if path.suffix.lower() in _TG_AUDIO_EXTS:
+            await query.message.chat.send_audio(
+                audio=media,
+                title=(result.get("title") or "Audio")[:TITLE_LIMIT],
+                performer=result.get("artist") or result.get("uploader") or None,
+                duration=duration or None,
+                **common,
+            )
+        else:
+            await query.message.chat.send_document(document=media, **common)
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -357,7 +398,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     kind, sid, raw_idx = parts
 
-    item = _take_pending(sid)
+    # pop защищает от двойного нажатия
+    item = _get_pending(sid, pop=True)
     if kind == "x":
         await _safe_edit(query, "Отменено.")
         return
@@ -373,6 +415,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     url, platform = item.url, item.platform
     audio_only = option.audio_only
     user_id = update.effective_user.id
+    choice = option.short
 
     if option.size and not has_free_space(option.size):
         await _safe_edit(query, "❌ Недостаточно места на сервере для этого варианта.")
@@ -384,7 +427,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     await _safe_edit(
         query,
-        f"⏳ <b>{platform}</b> · {option.short}{_size_hint(option)}\n"
+        f"⏳ <b>{platform}</b> · {choice}{_size_hint(option)}\n"
         "<i>Ожидание слота загрузки...</i>",
         parse_mode=ParseMode.HTML,
     )
@@ -398,13 +441,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         acquired = True
         stats.record_attempt()
 
-        await _safe_edit(query, f"📥 Скачиваю <b>{platform}</b> · {option.short}{_size_hint(option)}...",
+        await _safe_edit(query, f"📥 Скачиваю <b>{platform}</b> · {choice}{_size_hint(option)}...",
                          parse_mode=ParseMode.HTML)
 
         async with _chat_action(query.message.chat, chat_action):
-            logger.info("Starting download: %s (%s, selector=%s)", url, option.short, option.selector)
+            logger.info("Starting download: %s (%s, selector=%s)", url, choice, option.selector)
             result = await download_video_async(url, audio_only=audio_only,
-                                                format_selector=option.selector)
+                                                format_selector=option.selector,
+                                                audio_format=option.audio_format)
             file_path = result["file_path"]
             duration = int(result.get("duration") or 0)
 
@@ -426,7 +470,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                             prepared.meta.height, prepared.meta.vcodec, bool(prepared.thumbnail))
                 await _safe_edit(query, "📤 Uploading...")
                 await _send_video(query, prepared,
-                                  _build_caption(result, platform, duration, size),
+                                  _build_caption(result, platform, duration, size,
+                                                 (prepared.meta.width, prepared.meta.height)),
                                   duration, reply_to)
 
         stats.record_success(platform, user_id)
