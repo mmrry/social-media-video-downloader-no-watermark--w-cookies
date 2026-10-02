@@ -86,7 +86,7 @@ SUPPORTED_PLATFORMS: dict[str, list[str]] = {
     "Snapchat":    ["snapchat.com", "t.snapchat.com"],
     "Twitch":      ["twitch.tv", "clips.twitch.tv", "m.twitch.tv"],  # только клипы; записи (VOD) отключены
     # Порядок важен: live.vkvideo.ru должен совпасть раньше, чем vkvideo.ru
-    "VK Video Live": ["live.vkvideo.ru", "live.vkplay.ru", "vkplay.live"],  # клипы (моменты), записи
+    "VK Video Live": ["live.vkvideo.ru", "live.vkplay.ru", "vkplay.live"],  # только клипы (моменты); записи отключены
     "VK":          ["vk.com", "vk.ru", "vkvideo.ru"],  # видео и клипы
     "RuTube":      ["rutube.ru"],
     "SoundCloud":  ["soundcloud.com", "on.soundcloud.com", "m.soundcloud.com"],  # только аудио

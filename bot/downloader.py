@@ -54,6 +54,8 @@ _KICK_VOD_MSG = ("Записи эфиров Kick не скачиваются —
                  "Поддерживаются только клипы Kick.")
 _TWITCH_VOD_MSG = ("Записи эфиров Twitch не скачиваются — они слишком большие. "
                    "Поддерживаются только клипы Twitch.")
+_VKLIVE_VOD_MSG = ("Записи эфиров VK Video Live не скачиваются — они слишком большие. "
+                   "Поддерживаются только клипы (моменты) VK Video Live.")
 
 # ie_key экстрактора yt-dlp -> причина. Проверяется дважды:
 #   1) по URL через Extractor.suitable() — до сетевых запросов, знает все виды ссылок
@@ -64,6 +66,7 @@ _BLOCKED_EXTRACTORS: dict[str, str] = {
     "TwitchVod": _TWITCH_VOD_MSG,
     "TwitchVideos": _TWITCH_VOD_MSG,       # twitch.tv/<channel>/videos — список записей
     "TwitchCollection": _TWITCH_VOD_MSG,   # twitch.tv/collections/<id>
+    "VKPlay": _VKLIVE_VOD_MSG,             # live.vkvideo.ru / live.vkplay.ru / vkplay.live …/record/<uuid>
 }
 # Ссылки на записи, которые экстракторы yt-dlp не распознают сами
 _BLOCKED_URL_RES: list[tuple[re.Pattern, str]] = [

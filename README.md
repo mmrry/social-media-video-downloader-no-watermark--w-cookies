@@ -14,14 +14,15 @@ Telegram-бот, который скачивает видео без водян�
 | X (Twitter) | ✅ | `twitter.com`, `x.com` |
 | YouTube | ✅ | `youtube.com`, `youtu.be`, `m.youtube.com` |
 | Snapchat | ✅ | `snapchat.com`, `t.snapchat.com` |
-| Twitch | ✅ | **клипы** `clips.twitch.tv/<slug>`, `twitch.tv/<channel>/clip/<slug>`, `m.twitch.tv/clip/<slug>` (в т.ч. вертикальная версия 9:16). Записи эфиров (`twitch.tv/videos/…`) не поддерживаются — слишком большие |
+| Twitch | ✅ | **клипы** `clips.twitch.tv/<slug>`, `twitch.tv/<channel>/clip/<slug>`, `m.twitch.tv/clip/<slug>` (в т.ч. вертикальная версия 9:16). Записи (`twitch.tv/videos/…`) не поддерживаются |
 | VK | ✅ | видео и **клипы**: `vkvideo.ru/clip-…`, `vk.com/clip…`, `vk.com/clips…?z=clip…`, `vk.ru` |
-| VK Video Live | ✅ | **клипы (моменты)** `live.vkvideo.ru/<channel>/clip/<id>`, записи `…/record/<id>` |
+| VK Video Live | ✅ | **клипы (моменты)** `live.vkvideo.ru/<channel>/clip/<id>`. Записи (`…/record/<id>`) не поддерживаются |
 | RuTube | ✅ | `rutube.ru` |
-| Kick | ✅ | **клипы** `kick.com/<channel>/clips/clip_…` и `kick.com/<channel>?clip=clip_…`. Записи эфиров (`/videos/…`) не поддерживаются — слишком большие |
+| Kick | ✅ | **клипы** `kick.com/<channel>/clips/clip_…` и `kick.com/<channel>?clip=clip_…`. Записи (`/videos/…`) не поддерживаются |
 | SoundCloud | — | треки, приватные по secret-ссылке, `on.soundcloud.com`, `m.soundcloud.com`; из сета — первый трек |
 
-Прямые трансляции (канал в эфире) не скачиваются — только записи и клипы.
+Прямые трансляции (канал в эфире) не скачиваются.
+Записи эфиров Twitch, Kick и VK Video Live отключены — с этих площадок скачиваются только клипы.
 
 Ссылки распознаются и без `https://` (`vk.ru/clip1_2`), в скрытых гиперссылках
 и в подписях к пересланным медиа. На неподдерживаемую ссылку бот отвечает в личке.
@@ -59,6 +60,8 @@ yt-dlp из коробки не знает клипы VK Video Live, поэто�
 1. ищется JSON с `playerUrls` в любом `<script>` (`window.X = {...}`, `application/json`,
    `JSON.parse("...")`), выбирается объект нашего клипа, а не соседних из рекомендаций;
 2. fallback — прямые ссылки `.m3u8`/`.mp4` в HTML, метаданные из OpenGraph.
+
+Записи эфиров (`…/record/<id>`, экстрактор yt-dlp `VKPlay`) отключены — бот сразу отвечает 🚫.
 
 Ссылки на okcdn подписаны и живут ограниченное время — поэтому страница
 запрашивается заново и при предпроверке, и при загрузке.
