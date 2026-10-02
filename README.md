@@ -214,10 +214,3 @@ bot/
 ├── stats.py          # In-memory statistics
 └── utils.py          # URL extraction/normalization, platform detection
 ```
-
-## TODO
-
-* kick.com/<user>/clips/
-* Instagram-карусели: сейчас скачивается только первый элемент
-* Персистентная статистика (json/sqlite: ссылка, UID, статус)
-* VK stories (нужен логин)
