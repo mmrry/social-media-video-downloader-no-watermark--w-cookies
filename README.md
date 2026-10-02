@@ -126,6 +126,25 @@ VK-экстрактор yt-dlp всегда ходит в API на `https://vk.c
 Cookies VK выгружаются для того домена, куда реально идут запросы
 (при `VK_API_HOST=vk.ru` — с `https://vk.ru/`).
 
+## Отладка ссылки
+
+```bash
+docker compose exec bot python -m bot.debug "<url>"             # форматы площадки и варианты бота
+docker compose exec bot python -m bot.debug "<url>" -d 0         # + скачать вариант [0], проверить дорожки
+docker compose exec bot python -m bot.debug "<url>" -d 0 --keep  # не удалять файл
+docker compose exec bot python -m bot.debug "<url>" --json       # сырые форматы yt-dlp
+```
+
+Показывает таблицу форматов (⚠ — у видеоформата неизвестен `acodec`), варианты бота
+с селекторами, а с `-d` — потоки файла после yt-dlp и после `prepare_video` (✅/❌ звук).
+
+**Видео без звука.** После каждой загрузки бот проверяет аудиодорожки (`ffprobe`) и пишет
+в лог реально скачанные форматы:
+`Downloaded x.mp4: 2000[v=None,a=None,m3u8_native] | audio streams: 0`.
+Если звука нет, а у источника есть отдельные аудиоформаты (типично для X: HLS без `CODECS`,
+yt-dlp считает видеопоток «полным»), бот докачивает `bestaudio` и муксит его
+(видео копией, звук → AAC). Если отдельного аудио нет — видео без звука в оригинале.
+
 ## Docker
 
 ```bash
@@ -189,6 +208,7 @@ bot/
 ├── formats.py        # варианты качества с размерами для кнопок
 ├── vk_live.py        # yt-dlp extractor: VK Video Live clips (моменты)
 ├── ytdlp_patches.py  # runtime-патчи yt-dlp (VK_API_HOST)
+├── debug.py          # CLI-диагностика ссылки: python -m bot.debug <url>
 ├── media.py          # ffprobe, faststart/H.264, probe_url (размеры кадра), превью
 ├── queue_manager.py  # Global / per-user download slots
 ├── stats.py          # In-memory statistics

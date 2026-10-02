@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 import uuid
@@ -266,6 +267,82 @@ def _find_cover(file_id: str) -> str | None:
     return None
 
 
+def audio_stream_count(path: Path | str) -> int | None:
+    """Сколько аудиодорожек в файле (None — ffprobe не смог прочитать)."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=index", "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=60, check=True,
+        ).stdout
+        return len([line for line in out.splitlines() if line.strip()])
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+def _has_separate_audio(entry: dict) -> bool:
+    # acodec может быть None (HLS без CODECS: «audio-128000-Audio») — это тоже аудио
+    return any(f.get("vcodec") == "none" and f.get("acodec") != "none"
+               for f in entry.get("formats") or [])
+
+
+def _describe_formats(entry: dict) -> str:
+    """Какие форматы реально скачал yt-dlp — для лога."""
+    fmts = entry.get("requested_formats") or [entry]
+    return " + ".join(
+        f"{f.get('format_id')}[v={f.get('vcodec')},a={f.get('acodec')},{f.get('protocol')}]"
+        for f in fmts
+    )
+
+
+def _repair_missing_audio(url: str, path: Path, file_id: str) -> bool:
+    """
+    Страховка: в видео нет звука, хотя у источника есть аудиоформаты
+    (типичный случай — HLS без CODECS, yt-dlp считает видеопоток «полным»).
+    Докачиваем bestaudio и муксим: видео копией, звук -> AAC.
+    """
+    audio_tmpl = str(DOWNLOAD_DIR / f"{file_id}.afix.%(ext)s")
+    try:
+        with _cookie_file(url) as cookiefile:
+            opts = _base_opts(url, True, cookiefile)
+            opts.update({"format": "bestaudio/best[acodec!=none]", "outtmpl": audio_tmpl,
+                         "postprocessors": [], "quiet": True, "no_warnings": True})
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                _extract(ydl, url, download=True)
+    except Exception as e:
+        logger.warning("audio repair: bestaudio download failed: %s", e)
+        return False
+
+    audio = next((p for p in DOWNLOAD_DIR.glob(f"{file_id}.afix.*")
+                  if not p.name.endswith((".part", ".ytdl"))), None)
+    if not audio:
+        logger.warning("audio repair: audio file not found")
+        return False
+
+    out = path.with_name(f"{file_id}.amux.mp4")
+    cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(path), "-i", str(audio),
+           "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+           "-shortest", "-movflags", "+faststart", str(out)]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=1800, check=True)
+    except subprocess.CalledProcessError as e:
+        logger.warning("audio repair: mux failed: %s", (e.stderr or "").strip()[-400:])
+        out.unlink(missing_ok=True)
+        return False
+    except subprocess.SubprocessError as e:
+        logger.warning("audio repair: mux failed: %s", e)
+        out.unlink(missing_ok=True)
+        return False
+    finally:
+        audio.unlink(missing_ok=True)
+
+    final = path.with_suffix(".mp4")
+    if final != path:
+        path.unlink(missing_ok=True)
+    out.replace(final)
+    return True
+
+
 def cleanup_by_id(file_id: str) -> None:
     for p in DOWNLOAD_DIR.glob(f"{file_id}.*"):
         try:
@@ -330,6 +407,23 @@ def download_video(
                 )
             raise DownloadError("Download finished but file not found.")
 
+        audio_repaired = False
+        if not audio_only:
+            n_audio = audio_stream_count(path)
+            logger.info("Downloaded %s: %s | audio streams: %s",
+                        path.name, _describe_formats(entry), n_audio)
+            if n_audio == 0:
+                if _has_separate_audio(entry):
+                    logger.warning("No audio in %s, but source has audio formats — repairing", path.name)
+                    audio_repaired = _repair_missing_audio(url, path, file_id)
+                    if audio_repaired:
+                        path = path.with_suffix(".mp4")
+                        logger.info("Audio repaired: %s (audio streams: %s)",
+                                    path.name, audio_stream_count(path))
+                else:
+                    logger.info("No audio in %s and source has no separate audio formats "
+                                "(видео, вероятно, без звука в оригинале)", path.name)
+
         file_size = path.stat().st_size
         if file_size > MAX_FILE_SIZE_BYTES:
             raise FileTooLargeError(
@@ -348,6 +442,7 @@ def download_video(
             "height": entry.get("height") or 0,
             "audio_only": audio_only,
             "audio_format": audio_format if audio_only else None,
+            "audio_repaired": audio_repaired,
             "cover": _find_cover(file_id) if audio_only else None,
             "artist": entry.get("artist") or entry.get("uploader"),
         }

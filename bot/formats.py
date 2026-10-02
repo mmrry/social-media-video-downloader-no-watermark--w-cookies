@@ -237,7 +237,9 @@ def build_options(info: dict | None, max_bytes: int) -> tuple[list[QualityOption
         and f.get("ext") != "mhtml"            # storyboard'ы YouTube
         and "storyboard" not in (f.get("format_note") or "")
     ]
-    audios = [f for f in formats if f.get("vcodec") == "none" and f.get("acodec") not in (None, "none")]
+    # acodec=None у аудио бывает в HLS без CODECS (X: hls-audio-128000-Audio)
+    audios = [f for f in formats if f.get("vcodec") == "none" and f.get("acodec") != "none"
+              and f.get("ext") != "mhtml"]
     best_audio = max(
         audios,
         # m4a/AAC — родной для MP4 и Telegram, затем битрейт
