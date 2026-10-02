@@ -84,11 +84,12 @@ SUPPORTED_PLATFORMS: dict[str, list[str]] = {
     "YouTube":     ["youtube.com", "youtu.be", "m.youtube.com"],
     # "Reddit":    ["reddit.com", "redd.it", "v.redd.it"],  # Error 403, need login cookies
     "Snapchat":    ["snapchat.com", "t.snapchat.com"],
-    "Twitch":      ["twitch.tv", "clips.twitch.tv", "m.twitch.tv"],
+    "Twitch":      ["twitch.tv", "clips.twitch.tv", "m.twitch.tv"],  # только клипы; записи (VOD) отключены
     # Порядок важен: live.vkvideo.ru должен совпасть раньше, чем vkvideo.ru
     "VK Video Live": ["live.vkvideo.ru", "live.vkplay.ru", "vkplay.live"],  # клипы (моменты), записи
     "VK":          ["vk.com", "vk.ru", "vkvideo.ru"],  # видео и клипы
     "RuTube":      ["rutube.ru"],
     "SoundCloud":  ["soundcloud.com", "on.soundcloud.com", "m.soundcloud.com"],  # только аудио
+    "Kick":        ["kick.com"],  # только клипы (/clips/clip_…, ?clip=clip_…); записи отключены; нужен curl_cffi
     # "Threads":   ["threads.net", "threads.com"],  # yt-dlp not supported threads.com
 }

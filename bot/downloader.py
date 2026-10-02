@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import logging
 import os
 import re
@@ -35,6 +36,79 @@ logger = logging.getLogger(__name__)
 apply_vk_host_patch(VK_API_HOST)
 
 _VK_DOMAINS = ("vk.com", "vk.ru", "vkvideo.ru")
+
+# Площадки за Cloudflare, где экстрактор yt-dlp сам включает impersonate (curl_cffi).
+# Свои http_headers им не шлём: User-Agent Chrome/120 при TLS-отпечатке Chrome 13x —
+# несоответствие, по которому Cloudflare отдаёт 403.
+_IMPERSONATE_HOSTS = ("kick.com",)
+
+
+def _host_matches(url: str, domains: tuple[str, ...]) -> bool:
+    host = (urlparse(url).hostname or "").removeprefix("www.")
+    return any(host == d or host.endswith(f".{d}") for d in domains)
+
+
+# ─── намеренно отключённые типы ссылок ───
+# Записи эфиров отключены: многочасовые файлы на гигабайты.
+_KICK_VOD_MSG = ("Записи эфиров Kick не скачиваются — они слишком большие. "
+                 "Поддерживаются только клипы Kick.")
+_TWITCH_VOD_MSG = ("Записи эфиров Twitch не скачиваются — они слишком большие. "
+                   "Поддерживаются только клипы Twitch.")
+
+# ie_key экстрактора yt-dlp -> причина. Проверяется дважды:
+#   1) по URL через Extractor.suitable() — до сетевых запросов, знает все виды ссылок
+#      (twitch.tv/videos/…, m.twitch.tv, /v/…, player.twitch.tv/?video=…, списки и коллекции);
+#   2) по extractor_key результата — если ссылка другого вида всё равно привела к записи.
+_BLOCKED_EXTRACTORS: dict[str, str] = {
+    "KickVOD": _KICK_VOD_MSG,
+    "TwitchVod": _TWITCH_VOD_MSG,
+    "TwitchVideos": _TWITCH_VOD_MSG,       # twitch.tv/<channel>/videos — список записей
+    "TwitchCollection": _TWITCH_VOD_MSG,   # twitch.tv/collections/<id>
+}
+# Ссылки на записи, которые экстракторы yt-dlp не распознают сами
+_BLOCKED_URL_RES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"^https?://(?:www\.)?kick\.com/(?:[\w-]+/videos?|videos?)/", re.I), _KICK_VOD_MSG),
+]
+
+
+@functools.lru_cache(maxsize=None)
+def _blocked_ie_classes() -> tuple[tuple[type, str], ...]:
+    from yt_dlp.extractor import get_info_extractor
+    out = []
+    for key, msg in _BLOCKED_EXTRACTORS.items():
+        try:
+            out.append((get_info_extractor(key), msg))
+        except Exception:  # экстрактор переименовали в новой версии yt-dlp
+            logger.warning("Blocked extractor %s not found in yt-dlp", key)
+    return tuple(out)
+
+
+def rejection_reason(url: str) -> str | None:
+    """Почему ссылка не поддерживается (None — поддерживается)."""
+    for rx, msg in _BLOCKED_URL_RES:
+        if rx.match(url):
+            return msg
+    for ie, msg in _blocked_ie_classes():
+        if ie.suitable(url):
+            return msg
+    return None
+
+
+def _check_blocked_extractor(info: dict | None) -> None:
+    entry = first_entry(info) or info or {}
+    msg = _BLOCKED_EXTRACTORS.get(entry.get("extractor_key") or "")
+    if msg:
+        raise DownloadError(msg)
+
+
+def impersonation_available() -> bool:
+    import importlib.util
+    return importlib.util.find_spec("curl_cffi") is not None
+
+
+if not impersonation_available():
+    logger.warning("curl_cffi не установлен — Kick (Cloudflare) будет отвечать 403. "
+                   "Нужен пакет yt-dlp[default,curl-cffi]")
 
 _ID_RE = re.compile(r"^[0-9a-f]{12}\.")
 _SIDECAR_SUFFIXES = (".part", ".ytdl", ".jpg", ".jpeg", ".webp", ".png", ".json")
@@ -156,11 +230,12 @@ def _base_opts(url: str, audio_only: bool, cookiefile: str | None) -> dict[str, 
         "retries": 10,
         "fragment_retries": 15,
         "geo_bypass": True,
-        "http_headers": HEADERS,
         "extractor_args": {
             "tiktok": {"api_hostname": ["api22-normal-c-useast2a.tiktokv.com"]},
         },
     }
+    if not _host_matches(url, _IMPERSONATE_HOSTS):
+        opts["http_headers"] = HEADERS
     if cookiefile:
         opts["cookiefile"] = cookiefile
     proxy = _proxy_for(url)
@@ -184,6 +259,8 @@ def _base_opts(url: str, audio_only: bool, cookiefile: str | None) -> dict[str, 
 
 def get_video_info(url: str) -> dict:
     """Метаданные без скачивания, с тем же выбором формата, что и при загрузке."""
+    if reason := rejection_reason(url):
+        raise DownloadError(reason)
     try:
         with _cookie_file(url) as cookiefile:
             opts = {**_base_opts(url, False, cookiefile), "quiet": True, "no_warnings": True,
@@ -194,6 +271,7 @@ def get_video_info(url: str) -> dict:
         raise DownloadError(_clean_error(e)) from e
     if not info:
         raise DownloadError("Could not extract video information.")
+    _check_blocked_extractor(info)
     return info
 
 
@@ -361,6 +439,8 @@ def download_video(
     audio_format: str = "mp3",
 ) -> dict[str, Any]:
     """Синхронная загрузка (запускается в потоке)."""
+    if reason := rejection_reason(url):
+        raise DownloadError(reason)
     file_id = uuid.uuid4().hex[:12]
     try:
         with _cookie_file(url) as cookiefile:

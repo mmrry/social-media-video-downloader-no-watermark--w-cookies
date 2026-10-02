@@ -14,16 +14,40 @@ Telegram-бот, который скачивает видео без водян�
 | X (Twitter) | ✅ | `twitter.com`, `x.com` |
 | YouTube | ✅ | `youtube.com`, `youtu.be`, `m.youtube.com` |
 | Snapchat | ✅ | `snapchat.com`, `t.snapchat.com` |
-| Twitch | ✅ | `twitch.tv`, `clips.twitch.tv`, `m.twitch.tv` |
+| Twitch | ✅ | **клипы** `clips.twitch.tv/<slug>`, `twitch.tv/<channel>/clip/<slug>`, `m.twitch.tv/clip/<slug>` (в т.ч. вертикальная версия 9:16). Записи эфиров (`twitch.tv/videos/…`) не поддерживаются — слишком большие |
 | VK | ✅ | видео и **клипы**: `vkvideo.ru/clip-…`, `vk.com/clip…`, `vk.com/clips…?z=clip…`, `vk.ru` |
 | VK Video Live | ✅ | **клипы (моменты)** `live.vkvideo.ru/<channel>/clip/<id>`, записи `…/record/<id>` |
 | RuTube | ✅ | `rutube.ru` |
+| Kick | ✅ | **клипы** `kick.com/<channel>/clips/clip_…` и `kick.com/<channel>?clip=clip_…`. Записи эфиров (`/videos/…`) не поддерживаются — слишком большие |
 | SoundCloud | — | треки, приватные по secret-ссылке, `on.soundcloud.com`, `m.soundcloud.com`; из сета — первый трек |
 
 Прямые трансляции (канал в эфире) не скачиваются — только записи и клипы.
 
 Ссылки распознаются и без `https://` (`vk.ru/clip1_2`), в скрытых гиперссылках
 и в подписях к пересланным медиа. На неподдерживаемую ссылку бот отвечает в личке.
+
+### Twitch Clips
+
+Штатный экстрактор yt-dlp `twitch:clips`. Поддерживаются все виды ссылок на клип:
+
+* `https://clips.twitch.tv/<slug>`
+* `https://www.twitch.tv/<channel>/clip/<slug>` (в т.ч. с `?filter=clips&range=…`)
+* `https://m.twitch.tv/clip/<slug>`
+* без `https://` и в скрытых гиперссылках
+
+Особенности:
+
+* **вертикальные клипы** — если у клипа есть вертикальная версия, Twitch отдаёт её
+  отдельными форматами (`portrait-1080`, `portrait-720`…). Бот показывает обе версии
+  разными кнопками: 🎬 16:9 и 📱 9:16. У вертикальных форматов Twitch поле `height` —
+  короткая сторона (`portrait-720` = 720×1280), бот это учитывает в подписи «720p»;
+* **размеры на кнопках приблизительные** (`≈`): клипы не отдают ни `filesize`, ни битрейт;
+* **соотношение сторон** — из `aspect_ratio` метаданных, при отсутствии — `ffprobe` по потоку;
+* ссылка на канал в эфире (`twitch.tv/<channel>`) отклоняется как прямая трансляция;
+* **записи эфиров отключены** (слишком большие): `twitch.tv/videos/<id>`, `m.twitch.tv/videos/…`,
+  `twitch.tv/<channel>/v/<id>`, `player.twitch.tv/?video=v…`, списки записей
+  `twitch.tv/<channel>/videos` и коллекции — бот сразу отвечает 🚫 без сетевых запросов.
+  Список отключённого — `_BLOCKED_EXTRACTORS` в `bot/downloader.py`.
 
 ### VK Video Live clips
 
@@ -57,6 +81,19 @@ yt-dlp из коробки не знает клипы VK Video Live, поэто�
 [ ✖️ Отмена ]
 ```
 
+* от 5 вариантов кнопки раскладываются в 2 столбца с компактными подписями
+  (соотношение сторон — в шапке, ориентация — иконкой 🎬/📱); группы
+  (горизонтальные / вертикальные / аудио) в одной строке не смешиваются.
+  Порог — `TWO_COLUMNS_FROM` в `bot/handlers.py`:
+
+  ```
+  📐 16:9 · горизонтальное · 3840×2160
+  [ ⚠️ 🎬 2160p · 1.31 GB ] [ 🎬 1440p · 620 MB ]
+  [ 🎬 1080p60 · 324 MB   ] [ 🎬 720p · 124 MB  ]
+  [ 🎬 480p · ≈81 MB      ] [ 🎬 360p · ≈52 MB  ]
+  [ 🎵 MP3 · ≈14 MB ]
+  [ ✖️ Отмена ]
+  ```
 * соотношение сторон — из метаданных yt-dlp (`width`/`height`/`aspect_ratio`);
   если площадка их не отдаёт (Twitch-клипы, часть HLS) — `ffprobe` по ссылке на лучший
   поток (читаются только заголовки, ~1 с); учитывается поворот и то, что у Twitch
@@ -160,6 +197,10 @@ docker compose down              # остановка
 * `bot` — передаёт серверу путь к файлу (`file:///app/downloads/...`) вместо HTTP-загрузки.
 
 yt-dlp для YouTube требует JS-runtime — в образ добавлен Deno.
+Kick стоит за Cloudflare: экстрактор yt-dlp использует impersonate браузера, для этого
+нужен `curl_cffi` (`yt-dlp[default,curl-cffi]` в `requirements.txt`). Свои HTTP-заголовки
+бот для Kick не подставляет — иначе User-Agent не совпадёт с TLS-отпечатком и будет 403.
+Проверка: `python -m bot.debug <url>` показывает, установлен ли `curl_cffi`.
 Extractor'ы часто ломаются: пересобирайте образ регулярно (`docker compose build --no-cache bot`).
 
 ## Commands
@@ -214,10 +255,3 @@ bot/
 ├── stats.py          # In-memory statistics
 └── utils.py          # URL extraction/normalization, platform detection
 ```
-
-## TODO
-
-* kick.com/<user>/clips/
-* Instagram-карусели: сейчас скачивается только первый элемент
-* Персистентная статистика (json/sqlite: ссылка, UID, статус)
-* VK stories (нужен логин)

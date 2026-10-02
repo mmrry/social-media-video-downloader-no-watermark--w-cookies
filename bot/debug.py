@@ -15,6 +15,7 @@ import sys
 from bot.config import MAX_FILE_SIZE_BYTES
 from bot.downloader import (
     get_video_info, download_video, cleanup_file, first_entry, DownloadError, FileTooLargeError,
+    impersonation_available,
 )
 from bot.formats import build_options, ensure_dimensions, source_dims, available_ratios
 from bot.media import prepare_video, ratio_label
@@ -70,6 +71,8 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(name)s: %(message)s", stream=sys.stdout)
     url = normalize_url(args.url)
     print(f"URL: {url}\nПлатформа бота: {identify_platform(url)}")
+    print(f"curl_cffi (impersonate для Cloudflare, нужен Kick): "
+          f"{'✅ есть' if impersonation_available() else '❌ НЕТ — pip install \"yt-dlp[default,curl-cffi]\"'}")
 
     try:
         info = get_video_info(url)

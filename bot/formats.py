@@ -37,6 +37,11 @@ class QualityOption:
     # Размеры кадра исходника (для экрана выбора соотношения сторон)
     src_width: int = 0
     src_height: int = 0
+    # Короткая подпись для раскладки в 2 столбца: «📱 1080p60 · ≈23 MB»
+    compact: str = ""
+    # Группа для раскладки: ориентация ('h'/'v'/'s'/'') или 'a' — аудио.
+    # В одной строке клавиатуры не смешиваются кнопки разных групп.
+    group: str = ""
 
     @property
     def short(self) -> str:
@@ -59,6 +64,22 @@ def _fsize(f: dict, duration: float) -> tuple[int, bool]:
 
 def _is_h264(f: dict) -> bool:
     return (f.get("vcodec") or "").lower().startswith(("avc", "h264"))
+
+
+def _size_short(size: int, exact: bool) -> str:
+    """Компактный размер для узкой кнопки: 703 KB, 4.8 MB, 23 MB, 1.31 GB."""
+    if not size:
+        return ""
+    mb = size / (1024 * 1024)
+    if mb < 1:
+        txt = f"{size / 1024:.0f} KB"
+    elif mb < 10:
+        txt = f"{mb:.1f} MB"
+    elif mb < 1024:
+        txt = f"{mb:.0f} MB"
+    else:
+        txt = f"{mb / 1024:.2f} GB"
+    return f" · {'' if exact else '≈'}{txt}"
 
 
 def _size_label(size: int, exact: bool) -> str:
@@ -105,8 +126,10 @@ def _audio_only_options(audios: list[dict], duration: float, max_bytes: int) -> 
         if not _fits(size, exact, max_bytes):
             hidden += 1
             return
+        short = label.replace(" kbps", "").replace(" (M4A)", "")
         options.append(QualityOption(f"{label}{_size_label(size, exact)}", selector, True,
-                                     size, exact, audio_format=fmt))
+                                     size, exact, audio_format=fmt,
+                                     compact=f"{short}{_size_short(size, exact)}", group="a"))
 
     original = next((f for f in full if f.get("format_id") == "download"), None)
     mp3 = max((f for f in full if _is_mp3(f)), key=_abr, default=None)
@@ -304,7 +327,9 @@ def build_options(info: dict | None, max_bytes: int) -> tuple[list[QualityOption
         )
         options.append(QualityOption(f"{warn}{ORIENT_ICON[orient]} {name}{ratio}{_size_label(size, exact)}",
                                      selector, False, size, exact, h,
-                                     src_width=fw, src_height=fh))
+                                     src_width=fw, src_height=fh,
+                                     compact=f"{warn}{ORIENT_ICON[orient]} {name}{_size_short(size, exact)}",
+                                     group=orient))
         per_orient[orient] = per_orient.get(orient, 0) + 1
 
     if not options and not videos:
@@ -315,7 +340,9 @@ def build_options(info: dict | None, max_bytes: int) -> tuple[list[QualityOption
             ratio = f" · {ratio_label(ew, eh)}" if ew and eh else ""
             options.append(QualityOption(f"🎬 Лучшее качество{ratio}{_size_label(size, exact)}",
                                          None, False, size, exact,
-                                         src_width=ew, src_height=eh))
+                                         src_width=ew, src_height=eh,
+                                         compact=f"🎬 Лучшее{_size_short(size, exact)}",
+                                         group=orientation(ew, eh)))
         else:
             hidden += 1
 
@@ -326,5 +353,6 @@ def build_options(info: dict | None, max_bytes: int) -> tuple[list[QualityOption
         mp3_size, mp3_exact = audio_size, False
     if (formats or info) and _fits(mp3_size, mp3_exact, max_bytes):
         options.append(QualityOption(f"🎵 MP3{_size_label(mp3_size, mp3_exact)}",
-                                     None, True, mp3_size, mp3_exact))
+                                     None, True, mp3_size, mp3_exact,
+                                     compact=f"🎵 MP3{_size_short(mp3_size, mp3_exact)}", group="a"))
     return options, hidden

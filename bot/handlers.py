@@ -31,13 +31,14 @@ from bot.downloader import (
     has_free_space,
     is_live,
     first_entry,
+    rejection_reason,
     cleanup_file,
     DownloadError,
     FileTooLargeError,
 )
 from bot.media import prepare_video, make_cover, ratio_label
 from bot.formats import (QualityOption, build_options, ensure_dimensions, source_dims,
-                         available_ratios, ORIENT_NAME)
+                         available_ratios, ORIENT_NAME, ORIENT_ICON)
 from bot.utils import extract_urls, identify_platform, format_file_size, get_file_size, _escape_html
 from bot.stats import stats
 from bot import queue_manager
@@ -86,16 +87,31 @@ def _get_pending(sid: str, pop: bool = False) -> _Pending | None:
     return item
 
 
+# С какого количества вариантов раскладывать кнопки в 2 столбца
+TWO_COLUMNS_FROM = 5
+
+
 def _quality_keyboard(sid: str, options: list[QualityOption]) -> InlineKeyboardMarkup:
-    video = [o for o in options if not o.audio_only]
-    audio = [o for o in options if o.audio_only]
-    idx = {id(o): i for i, o in enumerate(options)}
-    rows = []
-    # По одному в строке: «1080p60 · 16:9 · 324.0 MB» не влезает по два на телефоне
-    for o in video:
-        rows.append([InlineKeyboardButton(o.label, callback_data=f"q|{sid}|{idx[id(o)]}")])
-    for o in audio:
-        rows.append([InlineKeyboardButton(o.label, callback_data=f"q|{sid}|{idx[id(o)]}")])
+    two_columns = len(options) >= TWO_COLUMNS_FROM
+    rows: list[list[InlineKeyboardButton]] = []
+
+    # Последовательные блоки одной группы (🎬 горизонтальные, 📱 вертикальные, 🎵 аудио):
+    # кнопки разных групп в одну строку не попадают
+    blocks: list[list[tuple[int, QualityOption]]] = []
+    for i, o in enumerate(options):
+        if blocks and blocks[-1][0][1].group == o.group:
+            blocks[-1].append((i, o))
+        else:
+            blocks.append([(i, o)])
+
+    per_row = 2 if two_columns else 1
+    for block in blocks:
+        for j in range(0, len(block), per_row):
+            rows.append([
+                InlineKeyboardButton(o.compact if two_columns and o.compact else o.label,
+                                     callback_data=f"q|{sid}|{i}")
+                for i, o in block[j:j + per_row]
+            ])
     rows.append([InlineKeyboardButton("✖️ Отмена", callback_data=f"x|{sid}|0")])
     return InlineKeyboardMarkup(rows)
 
@@ -115,7 +131,7 @@ def _quality_prompt(platform: str, title: str, duration: int, hidden: int,
     if ratios and len(ratios) > 1:
         # Площадка отдаёт несколько версий кадра (Twitch: обычная + вертикальная)
         text += "\n📐 Есть версии: " + " и ".join(
-            f"{r} ({ORIENT_NAME.get(o, '?')})" for r, o in ratios)
+            f"{ORIENT_ICON.get(o, '🎬')} {r} ({ORIENT_NAME.get(o, '?')})" for r, o in ratios)
     elif w and h:
         orient = "вертикальное" if h > w else "горизонтальное" if w > h else "квадратное"
         text += f"\n📐 {ratio_label(w, h)} · {orient} · {w}×{h}"
@@ -280,6 +296,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     for url in supported[:3]:
         platform = identify_platform(url)
+
+        if reason := rejection_reason(url):
+            await message.reply_text(f"🚫 {reason}", reply_to_message_id=message.message_id)
+            continue
 
         status_msg = await message.reply_text(
             "🔍 Анализирую ссылку...", reply_to_message_id=message.message_id
