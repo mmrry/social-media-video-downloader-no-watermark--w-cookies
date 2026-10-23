@@ -8,7 +8,9 @@ from pathlib import Path
 from telegram import BotCommand
 from telegram.ext import ApplicationBuilder
 
-from bot.config import BOT_TOKEN, BOT_API_URL, LOCAL_MODE, DOWNLOAD_DIR, COOKIES_FILE, VK_COOKIES_FILE
+from bot.config import (BOT_TOKEN, BOT_API_URL, LOCAL_MODE, DOWNLOAD_DIR, COOKIES_FILE, VK_COOKIES_FILE,
+                        ADMIN_IDS, DAILY_REPORT, DAILY_REPORT_TIME, DAILY_REPORT_TZ, DATA_DIR)
+from bot import activity, handlers
 from bot.preflight import run_checks
 from bot.downloader import purge_stale_downloads
 from bot.handlers import get_handlers, error_handler
@@ -42,10 +44,33 @@ async def _heartbeat() -> None:
         await asyncio.sleep(HEARTBEAT_INTERVAL)
 
 
+def _start_daily_report(application) -> None:
+    if not DAILY_REPORT:
+        return
+    if not ADMIN_IDS:
+        logger.warning("DAILY_REPORT=1, но ADMIN_IDS пуст — отчёт выключен")
+        return
+    tz = activity.parse_tz(DAILY_REPORT_TZ)
+    at = activity.parse_time(DAILY_REPORT_TIME)
+    log = activity.ActivityLog(DATA_DIR, tz)
+    if not log.enabled:
+        return
+    handlers.activity_log = log
+    handlers.REPORT_TZ_NAME = str(tz)
+    log.cleanup()
+    task = asyncio.create_task(activity.report_loop(
+        application.bot, log, activity.ReportState(DATA_DIR), ADMIN_IDS, at, str(tz)))
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+    logger.info("📊 Daily report: %s %s -> %d admin(s)", at.strftime("%H:%M"), tz, len(ADMIN_IDS))
+
+
 async def post_init(application) -> None:
     task = asyncio.create_task(_heartbeat())
     _background.add(task)
     task.add_done_callback(_background.discard)
+
+    _start_daily_report(application)
 
     # Остатки после OOM (exit 137) / падения во время upload
     removed = purge_stale_downloads()
@@ -58,6 +83,7 @@ async def post_init(application) -> None:
         BotCommand("help", "How to use the bot"),
         BotCommand("status", "Check bot load & queue"),
         BotCommand("stats", "Global download statistics"),
+        BotCommand("report", "Today's activity report (admins)"),
     ])
     logger.info("✅ Bot commands registered.")
 

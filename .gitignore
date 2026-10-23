@@ -26,3 +26,4 @@ tg-api-data/
 .idea/
 tests/assets/
 .pytest_cache/
+data/

@@ -2,3 +2,5 @@ python-telegram-bot>=21,<22
 # curl-cffi — impersonate браузера для площадок за Cloudflare (Kick)
 yt-dlp[default,curl-cffi]
 python-dotenv
+# Часовые пояса для DAILY_REPORT_TZ (в python:slim нет системной базы tzdata)
+tzdata

@@ -40,9 +40,12 @@ services:
       - BOT_API_URL=http://telegram-api-server:8081
       - TELEGRAM_LOCAL_MODE=1
       - DOWNLOAD_DIR=/app/downloads
+      - DATA_DIR=/app/data
       - MAX_FILE_SIZE_MB=2000
     volumes:
       - ./downloads:/app/downloads
+      # Журнал ссылок для ежедневного отчёта (DAILY_REPORT), ≤5 MB/день, хранится 2 дня
+      - ./data:/app/data
       - ./cookies.txt:/app/cookies.txt:ro
       # Опционально, для VK (раскомментировать + VK_COOKIES_FILE=/app/vk_cookies.txt в .env):
       # - ./vk_cookies.txt:/app/vk_cookies.txt:ro

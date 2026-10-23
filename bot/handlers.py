@@ -47,6 +47,7 @@ from bot.formats import (QualityOption, build_options, ensure_dimensions, source
                          available_ratios, ORIENT_NAME, ORIENT_ICON)
 from bot.utils import extract_urls, identify_platform, format_file_size, get_file_size, _escape_html
 from bot.stats import stats
+from bot import activity
 from bot import queue_manager
 
 logger = logging.getLogger(__name__)
@@ -241,6 +242,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     ]
     lines += [f"• {p}" for p in sorted(SUPPORTED_PLATFORMS.keys())]
     lines += ["\n<b>Commands:</b>", "/status - Check bot load & queue", "/stats - Global download statistics"]
+    if update.effective_user.id in ADMIN_IDS:
+        lines.append("/report - Today's activity report (admins)")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
@@ -252,6 +255,33 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "✅ The bot is running normally."
     )
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
+# ───────────────────────────── отчёт админам ─────────────────────────────
+
+# Создаётся в main.py при DAILY_REPORT=1; None — отчёт выключен
+activity_log: "activity.ActivityLog | None" = None
+REPORT_TZ_NAME = "UTC"
+
+
+def _record_activity(update: Update, urls: list[str]) -> None:
+    if activity_log is None:
+        return
+    for url in urls[:10]:   # не больше 10 ссылок из одного сообщения
+        activity_log.record(update.effective_user, update.effective_chat, url, identify_platform(url))
+
+
+async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/report — отчёт за сегодня на текущий момент (только админам)."""
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("🔒 This command is restricted to admins.")
+        return
+    if activity_log is None:
+        await update.message.reply_text("Отчёт выключен. Включите DAILY_REPORT=1 в .env и перезапустите бота.")
+        return
+    day = activity_log.today()
+    report = activity.build_report(day, activity_log.load(day), REPORT_TZ_NAME, activity_log.overflow(day))
+    await activity.send_report(context.bot, [update.effective_user.id], report, day)
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -287,6 +317,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     supported = [u for u in urls if identify_platform(u)]
     logger.info("Links from %s: %s (supported: %d)", user_id, urls, len(supported))
+    _record_activity(update, urls)
     if not supported:
         # В группах молчим, чтобы не спамить; в личке объясняем
         if message.chat.type == ChatType.PRIVATE:
@@ -800,6 +831,7 @@ def get_handlers() -> list:
         CommandHandler("help", help_command),
         CommandHandler("status", status_command),
         CommandHandler("stats", stats_command),
+        CommandHandler("report", report_command),
         # CAPTION — ссылки в подписях к пересланным видео/фото
         MessageHandler((filters.TEXT | filters.CAPTION) & ~filters.COMMAND, handle_message),
         CallbackQueryHandler(handle_callback),

@@ -131,6 +131,42 @@ yt-dlp из коробки не знает клипы VK Video Live, поэто�
 Проверка без Telegram: `python -m bot.debug "<url>"` покажет элементы поста,
 `-d 0` — скачает весь пост и покажет, во что превратится каждое фото.
 
+## Ежедневный отчёт админам
+
+Опция `DAILY_REPORT=1`: раз в сутки в `DAILY_REPORT_TIME` (часовой пояс `DAILY_REPORT_TZ`)
+каждый из `ADMIN_IDS` получает в личку отчёт за прошедший день — кто пользовался ботом
+и какие ссылки отправлял (в том числе неподдерживаемые):
+
+```
+📊 Отчёт за 22.10.2026 (Europe/Moscow)
+Пользователей: 2 · ссылок: 3
+
+👤 Иван Петров (@ivan) · 123456789 — 2
+10:15 TikTok
+https://www.tiktok.com/@user/video/7412…
+18:40 YouTube · Чат друзей
+https://youtu.be/abc
+
+👤 Anna · 987654321 — 1
+12:03 не поддерживается
+https://example.com/page
+```
+
+* **важно:** каждый админ должен хотя бы раз написать боту `/start` — первым бот писать не может;
+* `/report` — отчёт за сегодня на текущий момент (только админам);
+* в группах рядом со ссылкой — название чата; самые активные пользователи — сверху;
+* длинный отчёт (больше 5 сообщений) приходит сводкой + файлом `report-ГГГГ-ММ-ДД.txt`;
+* бот был выключен в момент отправки — отчёт уйдёт сразу после старта; если ни одному
+  админу не удалось доставить (сеть, не нажат `/start`) — повтор раз в час;
+* после простоя отправляется только отчёт за последний день, без «хвоста» за неделю;
+* в день первого включения отчёта нет — отсчёт начинается с момента запуска.
+
+Хранение: журнал `./data/activity/ГГГГ-ММ-ДД.jsonl` (по строке на ссылку, ~250 байт),
+не больше **5 MB в день** — дальше ссылки только считаются («+N не записано»);
+хранятся файлы за сегодня и вчера, старше — удаляются. Дата последней отправки —
+`./data/report_state.json`. Журнал содержит ID, имена и ссылки пользователей — держите
+`./data` закрытой (`chmod 700`).
+
 ## Ошибки
 
 Пользователь видит только общее описание причины, без вывода yt-dlp и технических деталей:
@@ -279,8 +315,8 @@ yt-dlp считает видеопоток «полным»), бот докач�
 ## Docker
 
 ```bash
-mkdir -p downloads tg-api-data && touch cookies.txt
-sudo chown -R 1000:1000 downloads cookies.txt && chmod 600 cookies.txt   # 1000 = APP_UID
+mkdir -p downloads data tg-api-data && touch cookies.txt
+sudo chown -R 1000:1000 downloads data cookies.txt && chmod 600 cookies.txt && chmod 700 data   # 1000 = APP_UID
 docker compose up -d --build     # сборка и запуск
 docker compose logs -f           # логи
 docker compose down              # остановка
@@ -306,6 +342,7 @@ Extractor'ы часто ломаются: пересобирайте образ 
 | Путь на хосте | Права |
 |---|---|
 | `./downloads` | владелец `APP_UID`, `755` — бот пишет, `telegram-api-server` читает (read-only) |
+| `./data` | владелец `APP_UID`, `700` — журнал для ежедневного отчёта |
 | `cookies.txt`, `vk_cookies.txt` | владелец `APP_UID`, `600` |
 | `./tg-api-data` | не трогать — это данные другого контейнера |
 
@@ -324,8 +361,9 @@ docker compose down
 grep -q '^APP_UID=' .env || printf 'APP_UID=1000\nAPP_GID=1000\n' >> .env
 
 # 2. Передать ему файлы, которые раньше принадлежали root
-sudo chown -R 1000:1000 downloads
-sudo chmod 755 downloads
+mkdir -p data
+sudo chown -R 1000:1000 downloads data
+sudo chmod 755 downloads && sudo chmod 700 data
 sudo chown 1000:1000 cookies.txt && sudo chmod 600 cookies.txt
 [ -f vk_cookies.txt ] && sudo chown 1000:1000 vk_cookies.txt && sudo chmod 600 vk_cookies.txt
 
@@ -380,6 +418,7 @@ yt-dlp и подклассами бота; загрузка идёт с лока
 | `/id` | Check your TG ID |
 | `/status` | Active downloads & waiting queue |
 | `/stats` | Global download statistics (admins only) |
+| `/report` | Activity report for today so far (admins only, needs `DAILY_REPORT=1`) |
 
 ## Configuration
 
@@ -402,6 +441,10 @@ yt-dlp и подклассами бота; загрузка идёт с лока
 | `MAX_CONCURRENT_DOWNLOADS` | `3` | Параллельных загрузок всего |
 | `PENDING_URL_TTL` | `3600` | Время жизни кнопок выбора качества, сек |
 | `APP_UID` / `APP_GID` | `1000` | Пользователь бота в контейнере (при сборке образа) |
+| `DAILY_REPORT` | `0` | Ежедневный отчёт админам: кто пользовался ботом и какие ссылки отправлял |
+| `DAILY_REPORT_TIME` | `09:00` | Время отправки отчёта, ЧЧ:ММ |
+| `DAILY_REPORT_TZ` | `UTC` | Часовой пояс отчёта и границы суток, напр. `Europe/Moscow` |
+| `DATA_DIR` | `./data` | Журнал для отчёта (в compose — volume `./data`) |
 | `GALLERY_MAX_ITEMS` | `35` | Максимум фото/видео из одного поста Instagram/TikTok (альбомы по 10) |
 | `SLIDESHOW_AUDIO` | `button` | Музыка слайд-шоу TikTok в MP3: `button` / `auto` / `off` |
 | `VK_API_HOST` | — | Хост вместо vk.com для API VK (напр. `vk.ru`) |
@@ -422,6 +465,7 @@ bot/
 ├── extractors.py     # подклассы yt-dlp: фото TikTok (/photo/, слайд-шоу), фото-сторис Instagram, ролики Дзена
 ├── gallery.py        # фото-посты/карусели: разбор ответа yt-dlp в список элементов альбома
 ├── errors.py         # понятные описания ошибок вместо вывода yt-dlp
+├── activity.py       # журнал ссылок и ежедневный отчёт админам (DAILY_REPORT)
 ├── ytdlp_patches.py  # runtime-патчи yt-dlp (VK_API_HOST)
 ├── debug.py          # CLI-диагностика ссылки: python -m bot.debug <url>
 ├── media.py          # ffprobe, faststart/H.264, probe_url (размеры кадра), превью, подготовка фото

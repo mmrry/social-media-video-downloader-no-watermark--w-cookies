@@ -10,3 +10,4 @@ tg-api-data/
 __pycache__/
 tests/
 .pytest_cache/
+data/

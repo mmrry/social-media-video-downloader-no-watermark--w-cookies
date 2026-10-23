@@ -87,6 +87,15 @@ SLIDESHOW_AUDIO: str = os.getenv("SLIDESHOW_AUDIO", "button").strip().lower()
 if SLIDESHOW_AUDIO not in ("button", "auto", "off"):
     SLIDESHOW_AUDIO = "button"
 
+# --- Ежедневный отчёт админам (bot/activity.py) ---
+# Раз в сутки ADMIN_IDS получают в личку: кто пользовался ботом и какие ссылки отправлял.
+# Админ должен хотя бы раз написать боту /start — иначе Telegram не даст боту написать первым.
+DAILY_REPORT: bool = _bool("DAILY_REPORT", False)
+DAILY_REPORT_TIME: str = os.getenv("DAILY_REPORT_TIME", "09:00")   # ЧЧ:ММ
+DAILY_REPORT_TZ: str = os.getenv("DAILY_REPORT_TZ", "UTC")         # напр. Europe/Moscow
+# Журнал ссылок (≤5 MB/день, хранится 2 дня) — нужен volume, чтобы пережить перезапуск
+DATA_DIR: Path = Path(os.getenv("DATA_DIR", "./data")).resolve()
+
 # --- Supported Platforms ---
 SUPPORTED_PLATFORMS: dict[str, list[str]] = {
     "TikTok":      ["tiktok.com", "vm.tiktok.com", "vt.tiktok.com"],

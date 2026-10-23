@@ -17,7 +17,7 @@ ARG APP_UID=1000
 ARG APP_GID=1000
 RUN groupadd -o -g "${APP_GID}" app \
     && useradd -o -u "${APP_UID}" -g app -m -d /home/app -s /usr/sbin/nologin app \
-    && mkdir -p /app/downloads && chown app:app /app/downloads
+    && mkdir -p /app/downloads /app/data && chown app:app /app/downloads /app/data
 
 COPY bot/ ./bot/
 
