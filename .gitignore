@@ -24,3 +24,5 @@ tg-api-data/
 # IDE
 .vscode/
 .idea/
+tests/assets/
+.pytest_cache/

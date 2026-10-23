@@ -225,6 +225,98 @@ def make_cover(image_path: str | None) -> bytes | None:
     return None
 
 
+# ───────────────────────────── photos ─────────────────────────────
+
+# Ограничения Bot API для sendPhoto: <=10 MB, ширина+высота <=10000, соотношение <=20
+PHOTO_MAX_BYTES = 10 * 1024 * 1024
+PHOTO_MAX_SUM = 10000
+PHOTO_MAX_RATIO = 20
+# Больше Telegram всё равно не хранит — при конвертации ужимаем до этого размера
+PHOTO_TARGET_SIDE = 2560
+
+
+def image_kind(path: Path) -> str:
+    """Формат по сигнатуре файла: jpeg / png / webp / gif / heic / avif / ''."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(32)
+    except OSError:
+        return ""
+    if head.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if head[4:8] == b"ftyp":
+        brand = head[8:12]
+        if brand in (b"avif", b"avis"):
+            return "avif"
+        if brand in (b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1"):
+            return "heic"
+    return ""
+
+
+def probe_image(path: Path) -> tuple[int, int]:
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+           "-show_entries", "stream=width,height", "-of", "json", str(path)]
+    try:
+        s = (json.loads(_run(cmd, 30).stdout or "{}").get("streams") or [{}])[0]
+        return int(s.get("width") or 0), int(s.get("height") or 0)
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError, ValueError, IndexError):
+        return 0, 0
+
+
+def photo_fits_telegram(w: int, h: int) -> bool:
+    """Подойдёт ли кадр для sendPhoto (иначе — документом)."""
+    if not w or not h:
+        return True  # неизвестно — пусть решит Telegram, есть fallback документом
+    return w + h <= PHOTO_MAX_SUM and max(w, h) / min(w, h) <= PHOTO_MAX_RATIO
+
+
+def prepare_photo(file_path: Path | str) -> Path:
+    """
+    Фото для sendPhoto/sendMediaGroup. JPEG/PNG в пределах лимитов уходят как есть;
+    WebP/HEIC/AVIF/GIF и слишком большие файлы — в JPEG ≤2560 px.
+    Синхронная функция — вызывать через asyncio.to_thread.
+    """
+    path = Path(file_path)
+    kind = image_kind(path)
+    # Правильное расширение: в local mode сервер Telegram смотрит и на имя файла
+    if kind in ("jpeg", "png") and path.suffix.lower() not in (".jpg", ".jpeg", ".png"):
+        fixed = path.with_suffix(".jpg" if kind == "jpeg" else ".png")
+        path.replace(fixed)
+        path = fixed
+    w, h = probe_image(path)
+    oversized = path.stat().st_size > PHOTO_MAX_BYTES or w + h > PHOTO_MAX_SUM
+    if kind in ("jpeg", "png") and not oversized:
+        return path
+
+    out = path.with_name(f"{path.stem}.tg.jpg")
+    vf = (f"scale='min({PHOTO_TARGET_SIDE},iw)':'min({PHOTO_TARGET_SIDE},ih)'"
+          ":force_original_aspect_ratio=decrease")
+    for q in (2, 5, 10):
+        out.unlink(missing_ok=True)
+        cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(path), "-frames:v", "1",
+               "-vf", vf, "-q:v", str(q), str(out)]
+        try:
+            _run(cmd, 60)
+        except subprocess.CalledProcessError as e:
+            logger.warning("photo conversion failed (%s, %s): %s", path.name, kind or "?",
+                           (e.stderr or "").strip()[-300:])
+            break
+        except subprocess.SubprocessError as e:
+            logger.warning("photo conversion failed (%s): %s", path.name, e)
+            break
+        if out.exists() and 0 < out.stat().st_size <= PHOTO_MAX_BYTES:
+            path.unlink(missing_ok=True)
+            return out
+    out.unlink(missing_ok=True)
+    return path  # как есть — при отказе Telegram уйдёт документом
+
+
 def _replace_with(path: Path, tmp: Path) -> Path:
     final = path.with_suffix(".mp4")
     if final != path:

@@ -1,11 +1,15 @@
+import asyncio
 import logging
+import os
 import sys
 import time
+from pathlib import Path
 
 from telegram import BotCommand
 from telegram.ext import ApplicationBuilder
 
-from bot.config import BOT_TOKEN, BOT_API_URL, LOCAL_MODE
+from bot.config import BOT_TOKEN, BOT_API_URL, LOCAL_MODE, DOWNLOAD_DIR, COOKIES_FILE, VK_COOKIES_FILE
+from bot.preflight import run_checks
 from bot.downloader import purge_stale_downloads
 from bot.handlers import get_handlers, error_handler
 
@@ -19,8 +23,30 @@ logging.getLogger("telegram").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
+HEARTBEAT_FILE = Path("/tmp/bot.heartbeat")
+HEARTBEAT_INTERVAL = 30
+_background: set[asyncio.Task] = set()
+
+
+async def _heartbeat() -> None:
+    """Пульс для HEALTHCHECK: обновляется, пока жив event loop."""
+    warned = False
+    while True:
+        try:
+            HEARTBEAT_FILE.touch()
+            warned = False
+        except OSError as e:
+            if not warned:  # не засорять лог каждые 30 с
+                logger.warning("heartbeat failed: %s", e)
+                warned = True
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
+
 
 async def post_init(application) -> None:
+    task = asyncio.create_task(_heartbeat())
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+
     # Остатки после OOM (exit 137) / падения во время upload
     removed = purge_stale_downloads()
     if removed:
@@ -37,7 +63,12 @@ async def post_init(application) -> None:
 
 
 def main() -> None:
-    logger.info("🚀 Starting Video Downloader Bot...")
+    logger.info("🚀 Starting Video Downloader Bot (uid=%s)...", os.getuid())
+    if not run_checks(DOWNLOAD_DIR, {"COOKIES_FILE": COOKIES_FILE, "VK_COOKIES_FILE": VK_COOKIES_FILE}):
+        # Без записи в downloads работать нельзя. Пауза — чтобы restart: unless-stopped
+        # не крутил контейнер в цикле и не засорял лог.
+        time.sleep(60)
+        sys.exit(1)
 
     builder = (
         ApplicationBuilder()

@@ -14,9 +14,10 @@ import sys
 
 from bot.config import MAX_FILE_SIZE_BYTES
 from bot.downloader import (
-    get_video_info, download_video, cleanup_file, first_entry, DownloadError, FileTooLargeError,
-    impersonation_available,
+    probe_media, download_video, download_gallery, cleanup_file, cleanup_by_id, first_entry,
+    DownloadError, FileTooLargeError, impersonation_available,
 )
+from bot.gallery import Gallery
 from bot.formats import build_options, ensure_dimensions, source_dims, available_ratios
 from bot.media import prepare_video, ratio_label
 from bot.utils import format_file_size, identify_platform, normalize_url
@@ -60,10 +61,49 @@ def _size(f: dict) -> str:
     return "-"
 
 
+def _debug_gallery(url: str, g: Gallery, args) -> int:
+    print(f"Фото-пост: {g.extractor_key} | {g.photos} фото, {g.videos} видео "
+          f"(всего в посте {g.total}) | автор: {g.uploader!r}")
+    print(f"Описание: {(g.description or g.title)[:200]!r}")
+    if g.audio:
+        print(f"Музыка слайд-шоу: {g.track!r} — {g.artist!r}, {g.audio_duration} с "
+              f"(в боте — MP3 по SLIDESHOW_AUDIO)")
+    for i, item in enumerate(g.items):
+        size = f" {item.width}x{item.height}" if item.width else ""
+        src = item.urls[0] if item.urls else (item.entry or {}).get("id")
+        print(f"   [{i}] {item.kind}{size}: {str(src)[:120]}")
+    if args.download is None:
+        return 0
+    print("\n=== Скачиваю весь пост")
+    from bot.media import prepare_photo, image_kind, probe_image
+    try:
+        dl = download_gallery(url, g)
+    except DownloadError as e:
+        print(f"❌ {e}")
+        return 1
+    try:
+        for f in dl.files:
+            if f.kind == "photo":
+                before = image_kind(f.path)
+                p = prepare_photo(f.path)
+                print(f"   🖼 {p.name}: {before} -> {image_kind(p)} {probe_image(p)} "
+                      f"{format_file_size(p.stat().st_size)}")
+            else:
+                _print_streams("   🎬 видео", str(f.path))
+        print(f"   не удалось: {dl.failed}")
+    finally:
+        if not args.keep:
+            cleanup_by_id(dl.file_id)
+        else:
+            print(f"\nФайлы сохранены: {dl.file_id}.*")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Bot link debugger")
     ap.add_argument("url")
-    ap.add_argument("-d", "--download", type=int, metavar="N", help="скачать вариант №N из списка бота")
+    ap.add_argument("-d", "--download", type=int, metavar="N",
+                    help="скачать вариант №N из списка бота (для фото-поста — весь пост)")
     ap.add_argument("--keep", action="store_true", help="не удалять скачанный файл")
     ap.add_argument("--json", action="store_true", help="вывести сырые форматы yt-dlp")
     args = ap.parse_args()
@@ -75,10 +115,12 @@ def main() -> int:
           f"{'✅ есть' if impersonation_available() else '❌ НЕТ — pip install \"yt-dlp[default,curl-cffi]\"'}")
 
     try:
-        info = get_video_info(url)
+        info = probe_media(url)
     except DownloadError as e:
-        print(f"❌ get_video_info: {e}")
+        print(f"❌ probe_media: {e}")
         return 1
+    if isinstance(info, Gallery):
+        return _debug_gallery(url, info, args)
     ensure_dimensions(info)
     entry = first_entry(info) or {}
     formats = entry.get("formats") or []

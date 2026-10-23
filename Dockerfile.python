@@ -10,7 +10,22 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Бот работает не от root. UID/GID задаются при сборке (APP_UID/APP_GID в .env) —
+# им должны принадлежать ./downloads и cookies-файлы на хосте (см. README, «Запуск не от root»).
+# -o: UID/GID может совпадать с уже существующим в образе.
+ARG APP_UID=1000
+ARG APP_GID=1000
+RUN groupadd -o -g "${APP_GID}" app \
+    && useradd -o -u "${APP_UID}" -g app -m -d /home/app -s /usr/sbin/nologin app \
+    && mkdir -p /app/downloads && chown app:app /app/downloads
+
 COPY bot/ ./bot/
-RUN mkdir -p /app/downloads
+
+ENV PYTHONUNBUFFERED=1
+USER app
+
+# Бот раз в 30 с обновляет файл-пульс из event loop; завис цикл — контейнер unhealthy
+HEALTHCHECK --interval=60s --timeout=10s --start-period=60s --retries=3 \
+    CMD python3 -c "import os,sys,time; sys.exit(time.time() - os.path.getmtime('/tmp/bot.heartbeat') > 120)"
 
 CMD ["python3", "-m", "bot.main"]

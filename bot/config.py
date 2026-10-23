@@ -74,6 +74,19 @@ MAX_CONCURRENT_DOWNLOADS: int = int(os.getenv("MAX_CONCURRENT_DOWNLOADS", "3"))
 # Сколько живут кнопки выбора формата (сек)
 PENDING_URL_TTL: int = int(os.getenv("PENDING_URL_TTL", "3600"))
 
+# --- Фото-посты (Instagram, TikTok) ---
+# Максимум элементов из одного поста. Telegram кладёт в альбом до 10 штук —
+# больше уходит несколькими альбомами подряд. У TikTok слайд-шоу до 35 фото.
+GALLERY_MAX_ITEMS: int = max(1, int(os.getenv("GALLERY_MAX_ITEMS", "35")))
+
+# Музыка слайд-шоу TikTok в MP3:
+#   button — после альбома кнопка «🎵 Скачать музыку (MP3)» (по умолчанию)
+#   auto   — MP3 отправляется сразу после альбома
+#   off    — не предлагать
+SLIDESHOW_AUDIO: str = os.getenv("SLIDESHOW_AUDIO", "button").strip().lower()
+if SLIDESHOW_AUDIO not in ("button", "auto", "off"):
+    SLIDESHOW_AUDIO = "button"
+
 # --- Supported Platforms ---
 SUPPORTED_PLATFORMS: dict[str, list[str]] = {
     "TikTok":      ["tiktok.com", "vm.tiktok.com", "vt.tiktok.com"],
@@ -91,5 +104,13 @@ SUPPORTED_PLATFORMS: dict[str, list[str]] = {
     "RuTube":      ["rutube.ru"],
     "SoundCloud":  ["soundcloud.com", "on.soundcloud.com", "m.soundcloud.com"],  # только аудио
     "Kick":        ["kick.com"],  # только клипы (/clips/clip_…, ?clip=clip_…); записи отключены; нужен curl_cffi
+    "Дзен":        ["dzen.ru", "zen.yandex.ru"],  # видео и ролики (/shorts/); каналы и статьи отклоняются
+    "Одноклассники": ["ok.ru", "odnoklassniki.ru"],  # видео и клипы (/video/<id>); m.ok.ru -> ok.ru
+    "9GAG":        ["9gag.com"],  # видео-мемы и фото-мемы (фото — как картинка)
+    "Imgur":       ["imgur.com"],  # видео/GIF и одиночные картинки
+    "Tumblr":      ["tumblr.com"],  # видео из постов
+    "Streamable":  ["streamable.com"],
+    "Dailymotion": ["dailymotion.com", "dai.ly"],
+    "Vimeo":       ["vimeo.com"],  # приватные по ссылке с хешем (vimeo.com/<id>/<hash>)
     # "Threads":   ["threads.net", "threads.com"],  # yt-dlp not supported threads.com
 }

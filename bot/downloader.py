@@ -9,12 +9,15 @@ import tempfile
 import time
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
 from urllib.parse import urlparse
 
 import yt_dlp
+from yt_dlp.networking import Request
 
+from bot import errors
 from bot.config import (
     DOWNLOAD_DIR,
     MAX_FILE_SIZE_BYTES,
@@ -27,7 +30,10 @@ from bot.config import (
     FORCE_IPV4,
     VK_API_HOST,
     SOCKET_TIMEOUT,
+    GALLERY_MAX_ITEMS,
 )
+from bot.extractors import InstagramStoryMediaIE, TikTokMediaIE, ZenYandexShortsIE
+from bot.gallery import Gallery, gallery_from_info, has_media
 from bot.vk_live import VKVideoLiveClipIE
 from bot.ytdlp_patches import apply_vk_host_patch
 
@@ -54,6 +60,8 @@ _KICK_VOD_MSG = ("Записи эфиров Kick не скачиваются —
                  "Поддерживаются только клипы Kick.")
 _TWITCH_VOD_MSG = ("Записи эфиров Twitch не скачиваются — они слишком большие. "
                    "Поддерживаются только клипы Twitch.")
+_DZEN_CHANNEL_MSG = ("Это ссылка на канал или статью Дзена. "
+                     "Пришлите ссылку на видео (dzen.ru/video/watch/…) или ролик (dzen.ru/shorts/…).")
 _VKLIVE_VOD_MSG = ("Записи эфиров VK Video Live не скачиваются — они слишком большие. "
                    "Поддерживаются только клипы (моменты) VK Video Live.")
 
@@ -67,6 +75,9 @@ _BLOCKED_EXTRACTORS: dict[str, str] = {
     "TwitchVideos": _TWITCH_VOD_MSG,       # twitch.tv/<channel>/videos — список записей
     "TwitchCollection": _TWITCH_VOD_MSG,   # twitch.tv/collections/<id>
     "VKPlay": _VKLIVE_VOD_MSG,             # live.vkvideo.ru / live.vkplay.ru / vkplay.live …/record/<uuid>
+    # dzen.ru/<канал>, а также статьи dzen.ru/a/… (экстрактор принимает «a» за канал) —
+    # иначе бот прислал бы случайное видео канала
+    "ZenYandexChannel": _DZEN_CHANNEL_MSG,
 }
 # Ссылки на записи, которые экстракторы yt-dlp не распознают сами
 _BLOCKED_URL_RES: list[tuple[re.Pattern, str]] = [
@@ -91,6 +102,10 @@ def rejection_reason(url: str) -> str | None:
     for rx, msg in _BLOCKED_URL_RES:
         if rx.match(url):
             return msg
+    # Свои экстракторы важнее блокировок: dzen.ru/shorts/… формально подходит
+    # и под экстрактор канала Дзена
+    if any(ie.suitable(url) for ie in _CUSTOM_IES):
+        return None
     for ie, msg in _blocked_ie_classes():
         if ie.suitable(url):
             return msg
@@ -143,9 +158,10 @@ def has_free_space(required_bytes: int) -> bool:
         return True  # Fallback
 
 
-def _clean_error(e: Exception) -> str:
-    msg = str(e).split(";")[0]
-    return msg.replace("ERROR: ", "", 1).strip()
+def _platform_error(e: Exception, url: str) -> "DownloadError":
+    """Ошибка yt-dlp -> DownloadError с общим описанием; подробности — только в лог."""
+    logger.warning("yt-dlp error for %s: %s", url, str(e).replace("ERROR: ", "", 1).strip())
+    return DownloadError(errors.describe(e))
 
 
 def first_entry(info: dict | None) -> dict | None:
@@ -162,16 +178,21 @@ def is_live(info: dict | None) -> bool:
     return bool(entry.get("is_live")) or entry.get("live_status") in ("is_live", "is_upcoming")
 
 
-def _extract(ydl: yt_dlp.YoutubeDL, url: str, download: bool) -> dict | None:
+# Собственные экстракторы (bot/vk_live.py, bot/extractors.py)
+_CUSTOM_IES = (VKVideoLiveClipIE, TikTokMediaIE, InstagramStoryMediaIE, ZenYandexShortsIE)
+
+
+def _extract(ydl: yt_dlp.YoutubeDL, url: str, download: bool, process: bool = True) -> dict | None:
     """
     extract_info с поддержкой собственных экстракторов.
-    add_info_extractor добавляет IE в конец списка (после generic),
+    add_info_extractor добавляет IE в конец списка (после generic и штатных),
     поэтому для своих URL передаём ie_key явно.
     """
-    if VKVideoLiveClipIE.suitable(url):
-        ydl.add_info_extractor(VKVideoLiveClipIE())
-        return ydl.extract_info(url, download=download, ie_key=VKVideoLiveClipIE.ie_key())
-    return ydl.extract_info(url, download=download)
+    for ie_cls in _CUSTOM_IES:
+        if ie_cls.suitable(url):
+            ydl.add_info_extractor(ie_cls())
+            return ydl.extract_info(url, download=download, process=process, ie_key=ie_cls.ie_key())
+    return ydl.extract_info(url, download=download, process=process)
 
 
 # (домены, файл cookies, обязательны ли cookies)
@@ -214,6 +235,13 @@ def _cookie_file(url: str) -> Iterator[str | None]:
     os.close(fd)
     try:
         shutil.copyfile(src, tmp)
+    except OSError as e:
+        # Чаще всего — файл на хосте принадлежит root (chmod 600), а бот работает не от root
+        Path(tmp).unlink(missing_ok=True)
+        logger.warning("Cookies file %s is not readable (%s) — continuing without cookies", path, e)
+        yield None
+        return
+    try:
         yield tmp
     finally:
         Path(tmp).unlink(missing_ok=True)
@@ -260,22 +288,60 @@ def _base_opts(url: str, audio_only: bool, cookiefile: str | None) -> dict[str, 
 
 # ───────────────────────────── info / size ─────────────────────────────
 
-def get_video_info(url: str) -> dict:
-    """Метаданные без скачивания, с тем же выбором формата, что и при загрузке."""
+# Площадки, где пост может состоять из фото (карусели, слайд-шоу, фото-сторис, фото-мемы)
+_GALLERY_HOSTS = ("instagram.com", "tiktok.com", "9gag.com", "imgur.com")
+
+
+def probe_media(url: str) -> dict | Gallery:
+    """
+    Метаданные без скачивания.
+    Gallery — пост с фото (Instagram/TikTok): отправляется альбомом без выбора качества.
+    dict — видео: info с тем же выбором формата, что и при загрузке.
+
+    Для Instagram/TikTok — один сетевой запрос: сырой ответ (process=False) сначала
+    проверяется на фото, затем, если фото нет, обрабатывается локально как раньше.
+    """
     if reason := rejection_reason(url):
         raise DownloadError(reason)
+    gallery_mode = _host_matches(url, _GALLERY_HOSTS)
     try:
         with _cookie_file(url) as cookiefile:
             opts = {**_base_opts(url, False, cookiefile), "quiet": True, "no_warnings": True,
                     "skip_download": True}
+            if gallery_mode:
+                # Пост из одного фото: «There is no video in this post» — не ошибка
+                opts["ignore_no_formats_error"] = True
             with yt_dlp.YoutubeDL(opts) as ydl:
-                info = _extract(ydl, url, download=False)
+                if not gallery_mode:
+                    info = _extract(ydl, url, download=False)
+                else:
+                    raw = _extract(ydl, url, download=False, process=False)
+                    # Короткие ссылки (vm.tiktok.com) — редирект на пост
+                    for _ in range(3):
+                        if not raw or raw.get("_type") != "url":
+                            break
+                        raw = _extract(ydl, raw["url"], download=False, process=False)
+                    if gallery := gallery_from_info(raw, GALLERY_MAX_ITEMS):
+                        logger.info("Gallery %s: %d photo, %d video (total %d)", url,
+                                    gallery.photos, gallery.videos, gallery.total)
+                        return gallery
+                    if not has_media(raw):
+                        raise DownloadError(errors.NO_MEDIA)
+                    info = ydl.process_ie_result(raw, download=False)
     except yt_dlp.utils.DownloadError as e:
-        raise DownloadError(_clean_error(e)) from e
+        raise _platform_error(e, url) from e
     if not info:
-        raise DownloadError("Could not extract video information.")
+        raise DownloadError(errors.NO_MEDIA)
     _check_blocked_extractor(info)
     return info
+
+
+def get_video_info(url: str) -> dict:
+    """Метаданные видео (без фото-сценария) — для отладки и совместимости."""
+    result = probe_media(url)
+    if isinstance(result, Gallery):
+        raise DownloadError("Это фото-пост — он отправляется альбомом, без выбора качества.")
+    return result
 
 
 def estimate_size(info: dict) -> tuple[int, bool]:
@@ -476,7 +542,7 @@ def download_video(
 
         entry = first_entry(info)
         if entry is None:
-            raise DownloadError("Could not extract video information.")
+            raise DownloadError(errors.NO_MEDIA)
 
         path = _find_output(file_id, AUDIO_EXTS.get(audio_format, "") if audio_only else ".mp4")
         if path is None and is_live(entry):
@@ -488,7 +554,8 @@ def download_video(
                 raise FileTooLargeError(
                     f"Файл ≈{size / 1024 / 1024:.0f} MB, лимит {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB."
                 )
-            raise DownloadError("Download finished but file not found.")
+            logger.error("Download finished but file not found: %s (%s)", url, file_id)
+            raise DownloadError(errors.DOWNLOAD_FAILED)
 
         audio_repaired = False
         if not audio_only:
@@ -510,8 +577,8 @@ def download_video(
         file_size = path.stat().st_size
         if file_size > MAX_FILE_SIZE_BYTES:
             raise FileTooLargeError(
-                f"File is {file_size / (1024 * 1024):.1f} MB, which exceeds the "
-                f"{MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB Telegram limit."
+                f"Файл {file_size / (1024 * 1024):.1f} MB — больше лимита "
+                f"{MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB."
             )
 
         return {
@@ -528,6 +595,7 @@ def download_video(
             "audio_repaired": audio_repaired,
             "cover": _find_cover(file_id) if audio_only else None,
             "artist": entry.get("artist") or entry.get("uploader"),
+            "track": entry.get("track"),
         }
 
     except (FileTooLargeError, DownloadError):
@@ -538,18 +606,120 @@ def download_video(
         cause = e.exc_info[1] if getattr(e, "exc_info", None) else None
         if isinstance(cause, (FileTooLargeError, DownloadError)):
             raise cause from None
-        logger.error("yt-dlp error: %s", e)
-        raise DownloadError(f"Platform error: {_clean_error(e)}") from e
+        raise _platform_error(e, url) from e
     except Exception as e:
         cleanup_by_id(file_id)
         logger.exception("Unexpected downloader error")
-        raise DownloadError(f"Technical error: {e}") from e
+        raise DownloadError(errors.INTERNAL) from e
 
 
 async def download_video_async(
     url: str, audio_only: bool = False, format_selector: str | None = None, audio_format: str = "mp3",
 ) -> dict[str, Any]:
     return await asyncio.to_thread(download_video, url, audio_only, format_selector, audio_format)
+
+
+# ───────────────────────────── gallery (фото-посты) ─────────────────────────────
+
+# Telegram принимает фото до 10 MB; больше — пережмём (media.prepare_photo).
+# Исходник крупнее этого порога — явно не фото из поста, не качаем.
+IMAGE_MAX_BYTES = 50 * 1024 * 1024
+_CONTENT_TYPE_EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
+                     "image/heic": "heic", "image/heif": "heic", "image/avif": "avif", "image/gif": "gif"}
+
+
+@dataclass
+class GalleryFile:
+    kind: str      # "photo" | "video"
+    path: Path
+
+
+@dataclass
+class GalleryDownload:
+    file_id: str   # общий префикс файлов — для cleanup_by_id
+    files: list[GalleryFile]
+    failed: int    # элементы, которые не удалось скачать
+
+
+def _download_image(ydl: yt_dlp.YoutubeDL, urls: list[str], headers: dict, stem: str) -> Path:
+    """Первый кандидат, который удалось скачать. Сетевой стек yt-dlp: cookies, прокси, IPv4."""
+    last: Exception | None = None
+    for url in urls:
+        path: Path | None = None
+        try:
+            with ydl.urlopen(Request(url, headers=dict(headers))) as resp:
+                ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                path = DOWNLOAD_DIR / f"{stem}.{_CONTENT_TYPE_EXT.get(ctype, 'img')}"
+                size = 0
+                with open(path, "wb") as f:
+                    while chunk := resp.read(256 * 1024):
+                        size += len(chunk)
+                        if size > IMAGE_MAX_BYTES:
+                            raise FileTooLargeError(f"image > {IMAGE_MAX_BYTES} bytes")
+                        f.write(chunk)
+            if size:
+                return path
+            last = DownloadError("empty image")
+        except Exception as e:  # noqa: BLE001 — пробуем следующий кандидат
+            last = e
+        if path:
+            path.unlink(missing_ok=True)
+    raise last or DownloadError("no image urls")
+
+
+def _download_gallery_video(base_opts: dict, gallery: Gallery, entry: dict, stem: str) -> Path:
+    """Видео из карусели: лучший формат в пределах лимита, без выбора качества."""
+    opts = {**base_opts, "outtmpl": str(DOWNLOAD_DIR / f"{stem}.%(ext)s"),
+            "progress_hooks": [_make_guard_hook()]}
+    # Элементы сырого плейлиста не содержат полей, которые yt-dlp добавляет при обработке
+    info = {"extractor": gallery.extractor, "extractor_key": gallery.extractor_key,
+            "webpage_url": gallery.webpage_url, "http_headers": gallery.http_headers, **entry}
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ydl.process_ie_result(info, download=True)
+    path = _find_output(stem, ".mp4")
+    if path is None:
+        raise DownloadError("video file not found")
+    if path.stat().st_size > MAX_FILE_SIZE_BYTES:
+        raise FileTooLargeError(f"video {path.stat().st_size} bytes")
+    return path
+
+
+def download_gallery(url: str, gallery: Gallery) -> GalleryDownload:
+    """
+    Синхронная загрузка всех элементов поста (запускается в потоке).
+    Ошибка одного элемента не роняет весь пост — он считается в failed.
+    """
+    file_id = uuid.uuid4().hex[:12]
+    files: list[GalleryFile] = []
+    failed = 0
+    try:
+        with _cookie_file(url) as cookiefile:
+            base = _base_opts(url, False, cookiefile)
+            base.update({"quiet": True, "no_warnings": True, "postprocessors": [],
+                         "max_filesize": MAX_FILE_SIZE_BYTES})
+            with yt_dlp.YoutubeDL(base) as ydl:
+                for n, item in enumerate(gallery.items, 1):
+                    stem = f"{file_id}.{n:02d}"
+                    if not has_free_space(IMAGE_MAX_BYTES if item.kind == "photo" else 0):
+                        raise DownloadError("На сервере закончилось свободное место.")
+                    try:
+                        if item.kind == "photo":
+                            path = _download_image(ydl, item.urls, gallery.http_headers, stem)
+                        else:
+                            path = _download_gallery_video(base, gallery, item.entry or {}, stem)
+                        files.append(GalleryFile(item.kind, path))
+                    except Exception as e:  # noqa: BLE001
+                        failed += 1
+                        cleanup_by_id(stem)
+                        logger.warning("Gallery item %d/%d (%s) failed for %s: %s",
+                                       n, len(gallery.items), item.kind, url, e)
+    except Exception:
+        cleanup_by_id(file_id)
+        raise
+    if not files:
+        cleanup_by_id(file_id)
+        raise DownloadError(errors.GALLERY_FAILED)
+    return GalleryDownload(file_id, files, failed)
 
 
 # ───────────────────────────── cleanup ─────────────────────────────

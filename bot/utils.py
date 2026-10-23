@@ -53,6 +53,12 @@ def normalize_url(url: str) -> str:
         host = (parsed.hostname or "").removeprefix("www.")
         if any(host == h or host.endswith(f".{h}") for h in _STRIP_QUERY_HOSTS):
             return f"{parsed.scheme}://{parsed.hostname}{parsed.path.rstrip('/')}"
+        # Мобильные/короткие формы, которые экстракторы yt-dlp не принимают:
+        # m.ok.ru/video/1 -> ok.ru/video/1; tumblr.com/<blog>/<id> -> www.tumblr.com/<blog>/<id>
+        if host in ("m.ok.ru", "m.odnoklassniki.ru"):
+            return parsed._replace(netloc="ok.ru").geturl()
+        if (parsed.hostname or "") == "tumblr.com":
+            return parsed._replace(netloc="www.tumblr.com").geturl()
         # vk.com/clips-123?z=clip-123_456 -> прямая ссылка на клип
         if host.endswith(("vk.com", "vk.ru", "vkvideo.ru")):
             m = re.search(r"[?&]z=(clip|video)(-?\d+_\d+)", url)

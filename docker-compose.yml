@@ -1,3 +1,11 @@
+# Логи Docker: до 5 MB на файл, 3 файла — не больше 15 MB на сервис.
+# json-file ротирует по размеру; срок хранения ограничивается объёмом.
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "5m"
+    max-file: "3"
+
 services:
   telegram-api-server:
     image: aiogram/telegram-bot-api:latest
@@ -12,11 +20,8 @@ services:
       - ./tg-api-data:/var/lib/telegram-bot-api
       # Тот же путь, что и в контейнере бота — file:///app/downloads/... должен существовать здесь
       - ./downloads:/app/downloads:ro
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "9"
+    logging: *default-logging
+    mem_limit: 512m
     networks:
       - botnet
 
@@ -24,6 +29,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.python
+      args:
+        # Пользователь внутри контейнера; владелец ./downloads и cookies на хосте
+        APP_UID: "${APP_UID:-1000}"
+        APP_GID: "${APP_GID:-1000}"
     restart: unless-stopped
     env_file:
       - .env
@@ -37,6 +46,9 @@ services:
       - ./cookies.txt:/app/cookies.txt:ro
       # Опционально, для VK (раскомментировать + VK_COOKIES_FILE=/app/vk_cookies.txt в .env):
       # - ./vk_cookies.txt:/app/vk_cookies.txt:ro
+    logging: *default-logging
+    # Обычная работа ~100–200 MB; пики — транскод VP9/AV1 -> H.264 (см. README, «Ресурсы»)
+    mem_limit: 512m
     networks:
       - botnet
     depends_on:

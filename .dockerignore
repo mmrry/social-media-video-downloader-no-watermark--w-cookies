@@ -8,3 +8,5 @@ logs
 downloads/
 tg-api-data/
 __pycache__/
+tests/
+.pytest_cache/
