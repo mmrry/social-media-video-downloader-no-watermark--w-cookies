@@ -667,8 +667,8 @@ def _yt_dlp_ie(url):
     ("https://streamable.com/abc12", "Streamable", "Streamable"),
     ("https://www.dailymotion.com/video/x8abcde", "Dailymotion", "Dailymotion"),
     ("https://dai.ly/x8abcde", "Dailymotion", "Dailymotion"),
-    ("https://vimeo.com/123456789", "Vimeo", "Vimeo"),
-    ("https://vimeo.com/123456789/abcdef1234", "Vimeo", "Vimeo"),
+    ("https://vimeo.com/123456789", "Vimeo", "VimeoNoLogin"),
+    ("https://vimeo.com/123456789/abcdef1234", "Vimeo", "VimeoNoLogin"),
 ])
 def test_new_platform_routing(raw, platform, ie):
     from bot.utils import extract_urls, identify_platform
@@ -751,3 +751,58 @@ def test_help_lists_new_platforms():
     from bot.config import SUPPORTED_PLATFORMS
     for name in ("Дзен", "Одноклассники", "9GAG", "Imgur", "Tumblr", "Streamable", "Dailymotion", "Vimeo"):
         assert name in SUPPORTED_PLATFORMS
+
+
+# ───────────── Vimeo без входа ─────────────
+
+PLAYER_CONFIG = ('{"video": {"id": 649024798, "title": "Vimeo clip", "duration": 12, '
+                 '"owner": {"name": "Author"}, "thumbs": {"base": "https://i.vimeocdn.com/video/1"}}, '
+                 '"request": {"files": {"progressive": [{"url": "https://vod.vimeocdn.com/720.mp4", '
+                 '"quality": "720p", "width": 1280, "height": 720, "fps": 30}]}}}')
+
+
+@pytest.fixture
+def fake_vimeo(monkeypatch):
+    from yt_dlp.extractor.vimeo import VimeoIE
+    seen = []
+
+    def page(self, url, video_id, *a, **k):
+        seen.append(url)
+        body = (f"<script>window.playerConfig = {PLAYER_CONFIG};</script>"
+                if "player.vimeo.com" in url else "<html><body>next.js app</body></html>")
+        return body, type("H", (), {"url": url})()
+    monkeypatch.setattr(VimeoIE, "_download_webpage_handle", page)
+    return seen
+
+
+@pytest.mark.parametrize("url,player", [
+    ("https://vimeo.com/649024798", "https://player.vimeo.com/video/649024798"),
+    ("https://vimeo.com/649024798/abcdef1234", "https://player.vimeo.com/video/649024798?h=abcdef1234"),
+])
+def test_vimeo_without_login_uses_player(fake_vimeo, url, player):
+    from bot.downloader import probe_media
+    from bot.formats import build_options
+    info = probe_media(url)
+    assert player in fake_vimeo
+    assert info["title"] == "Vimeo clip" and info["formats"][0]["height"] == 720
+    options, _ = build_options(info, 50 * 1024 * 1024)
+    assert any(o.height == 720 for o in options)
+
+
+def test_vimeo_with_login_keeps_api(monkeypatch):
+    import yt_dlp
+    from yt_dlp.extractor.vimeo import VimeoIE
+    from bot.extractors import VimeoNoLoginIE
+    called = []
+    monkeypatch.setattr(VimeoIE, "_extract_from_api",
+                        lambda self, vid, h=None: called.append((vid, h)) or {"id": vid})
+    monkeypatch.setattr(VimeoNoLoginIE, "_is_logged_in", property(lambda self: True))
+    ie = VimeoNoLoginIE(yt_dlp.YoutubeDL({"quiet": True}))
+    assert ie._extract_from_api("1", "abc") == {"id": "1"} and called == [("1", "abc")]
+
+
+def test_vimeo_login_error_is_friendly():
+    raw = ("ERROR: [vimeo] 649024798: The web client only works when logged-in. Use --cookies, "
+           "--cookies-from-browser, --username and --password, --netrc-cmd, or --netrc (vimeo) to provide "
+           "account credentials. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp")
+    assert errors.describe(raw) == errors.AUTH

@@ -23,10 +23,17 @@ yt-dlp ориентирован на видео и картинки из пос�
   Подкласс разбирает страницу ролика тем же кодом (JSON ``ssrData``); если структура
   страницы другая — переходит на ``dzen.ru/video/watch/<id>`` (тот же id публикации).
 
+* Vimeo без входа — для ``vimeo.com/<id>`` штатный экстрактор идёт в API клиентом
+  ``web``, который теперь требует вход («The web client only works when logged-in»).
+  Страницу плеера ``player.vimeo.com/video/<id>`` тот же экстрактор разбирает без API
+  (``playerConfig``) — туда и перенаправляем, если cookies Vimeo нет. С cookies
+  (``VIMEO_COOKIES_FILE``) — штатный путь через API (плюс исходный файл, если автор разрешил).
+
 Видео все подклассы обрабатывают ровно как штатные экстракторы.
 """
 from yt_dlp.extractor.instagram import InstagramStoryIE
 from yt_dlp.extractor.tiktok import TikTokIE
+from yt_dlp.extractor.vimeo import VimeoIE
 from yt_dlp.extractor.yandexvideo import ZenYandexIE
 from yt_dlp.utils import int_or_none, traverse_obj, url_or_none
 
@@ -103,3 +110,18 @@ class ZenYandexShortsIE(ZenYandexIE):
         except Exception as e:  # noqa: BLE001 — другая структура страницы ролика
             self.write_debug(f"dzen shorts page: {e}; trying video/watch")
             return self.url_result(f"https://dzen.ru/video/watch/{video_id}", ZenYandexIE, video_id)
+
+
+class VimeoNoLoginIE(VimeoIE):
+    IE_NAME = "vimeo:nologin"
+    _TESTS = []
+
+    def _extract_from_api(self, video_id, unlisted_hash=None):
+        client = self._get_requested_client()
+        if self._is_logged_in or not self._CLIENT_CONFIGS[client]["REQUIRES_AUTH"]:
+            return super()._extract_from_api(video_id, unlisted_hash)
+        player_url = f"https://player.vimeo.com/video/{video_id}"
+        if unlisted_hash:
+            player_url += f"?h={unlisted_hash}"   # приватное видео по ссылке
+        self.write_debug(f"{client} API client needs login; using player page {player_url}")
+        return self.url_result(player_url, VimeoIE, video_id)

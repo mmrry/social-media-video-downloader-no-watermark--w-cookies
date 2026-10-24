@@ -9,6 +9,7 @@ from telegram import BotCommand
 from telegram.ext import ApplicationBuilder
 
 from bot.config import (BOT_TOKEN, BOT_API_URL, LOCAL_MODE, DOWNLOAD_DIR, COOKIES_FILE, VK_COOKIES_FILE,
+                        VIMEO_COOKIES_FILE,
                         ADMIN_IDS, DAILY_REPORT, DAILY_REPORT_TIME, DAILY_REPORT_TZ, DATA_DIR)
 from bot import activity, handlers
 from bot.preflight import run_checks
@@ -90,7 +91,8 @@ async def post_init(application) -> None:
 
 def main() -> None:
     logger.info("🚀 Starting Video Downloader Bot (uid=%s)...", os.getuid())
-    if not run_checks(DOWNLOAD_DIR, {"COOKIES_FILE": COOKIES_FILE, "VK_COOKIES_FILE": VK_COOKIES_FILE}):
+    if not run_checks(DOWNLOAD_DIR, {"COOKIES_FILE": COOKIES_FILE, "VK_COOKIES_FILE": VK_COOKIES_FILE,
+                                    "VIMEO_COOKIES_FILE": VIMEO_COOKIES_FILE}):
         # Без записи в downloads работать нельзя. Пауза — чтобы restart: unless-stopped
         # не крутил контейнер в цикле и не засорял лог.
         time.sleep(60)

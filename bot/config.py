@@ -25,6 +25,8 @@ ADMIN_IDS: list[int] = [int(x.strip()) for x in _admin_raw.split(",") if x.strip
 # (нужны для приватных/18+ видео и если VK начинает требовать вход)
 COOKIES_FILE: str = os.getenv("COOKIES_FILE", "")
 VK_COOKIES_FILE: str = os.getenv("VK_COOKIES_FILE", "")
+# Vimeo — опционально: видео «только для вошедших» и исходный файл; публичные работают и без них
+VIMEO_COOKIES_FILE: str = os.getenv("VIMEO_COOKIES_FILE", "")
 
 # --- Network ---
 # Прокси для yt-dlp: http://host:port, socks5://user:pass@host:port

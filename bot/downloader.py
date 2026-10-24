@@ -23,6 +23,7 @@ from bot.config import (
     MAX_FILE_SIZE_BYTES,
     COOKIES_FILE,
     VK_COOKIES_FILE,
+    VIMEO_COOKIES_FILE,
     DISK_RESERVE_BYTES,
     PREFER_H264,
     PROXY,
@@ -32,7 +33,7 @@ from bot.config import (
     SOCKET_TIMEOUT,
     GALLERY_MAX_ITEMS,
 )
-from bot.extractors import InstagramStoryMediaIE, TikTokMediaIE, ZenYandexShortsIE
+from bot.extractors import InstagramStoryMediaIE, TikTokMediaIE, VimeoNoLoginIE, ZenYandexShortsIE
 from bot.gallery import Gallery, gallery_from_info, has_media
 from bot.vk_live import VKVideoLiveClipIE
 from bot.ytdlp_patches import apply_vk_host_patch
@@ -179,7 +180,8 @@ def is_live(info: dict | None) -> bool:
 
 
 # Собственные экстракторы (bot/vk_live.py, bot/extractors.py)
-_CUSTOM_IES = (VKVideoLiveClipIE, TikTokMediaIE, InstagramStoryMediaIE, ZenYandexShortsIE)
+_CUSTOM_IES = (VKVideoLiveClipIE, TikTokMediaIE, InstagramStoryMediaIE, ZenYandexShortsIE,
+               VimeoNoLoginIE)
 
 
 def _extract(ydl: yt_dlp.YoutubeDL, url: str, download: bool, process: bool = True) -> dict | None:
@@ -200,6 +202,8 @@ _COOKIE_RULES: tuple[tuple[tuple[str, ...], str, bool], ...] = (
     (("instagram.com",), COOKIES_FILE, True),
     # Обычный VK (клипы, видео). Live-клипам cookies не нужны.
     (("vk.com", "vk.ru", "vkvideo.ru"), VK_COOKIES_FILE, False),
+    # Vimeo — опционально: без cookies видео берётся со страницы плеера (VimeoNoLoginIE)
+    (("vimeo.com",), VIMEO_COOKIES_FILE, False),
 )
 
 

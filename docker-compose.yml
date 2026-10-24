@@ -49,6 +49,8 @@ services:
       - ./cookies.txt:/app/cookies.txt:ro
       # Опционально, для VK (раскомментировать + VK_COOKIES_FILE=/app/vk_cookies.txt в .env):
       # - ./vk_cookies.txt:/app/vk_cookies.txt:ro
+      # Опционально, для Vimeo (+ VIMEO_COOKIES_FILE=/app/vimeo_cookies.txt в .env):
+      # - ./vimeo_cookies.txt:/app/vimeo_cookies.txt:ro
     logging: *default-logging
     # Обычная работа ~100–200 MB; пики — транскод VP9/AV1 -> H.264 (см. README, «Ресурсы»)
     mem_limit: 512m

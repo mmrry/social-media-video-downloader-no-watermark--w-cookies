@@ -28,7 +28,7 @@ Instagram и TikTok приходят альбомом.
 | Tumblr | ✅ | видео из постов: `www.tumblr.com/<блог>/<id>`, `tumblr.com/<блог>/<id>`, `<блог>.tumblr.com/post/<id>` |
 | Streamable | ✅ | `streamable.com/<id>` |
 | Dailymotion | ✅ | `dailymotion.com/video/<id>`, `dai.ly/<id>` |
-| Vimeo | ✅ | `vimeo.com/<id>`, приватные по ссылке с хешем `vimeo.com/<id>/<hash>`; видео только для вошедших — недоступны |
+| Vimeo | ✅ | `vimeo.com/<id>`, `player.vimeo.com/video/<id>`, приватные по ссылке с хешем `vimeo.com/<id>/<hash>`; без cookies — через страницу плеера (см. ниже) |
 
 Прямые трансляции (канал в эфире) не скачиваются.
 Записи эфиров Twitch, Kick и VK Video Live отключены — с этих площадок скачиваются только клипы.
@@ -270,6 +270,15 @@ sudo chown 1000:1000 cookies.txt && chmod 600 cookies.txt   # 1000 = APP_UID и�
 `https://vk.com/`, файл `vk_cookies.txt`, раскомментировать строку в `docker-compose.yml`
 и указать `VK_COOKIES_FILE=/app/vk_cookies.txt`.
 
+*Vimeo* — опционально. Без cookies yt-dlp для `vimeo.com/<id>` упирается в
+«The web client only works when logged-in»: API Vimeo теперь пускает клиент `web` только
+после входа. Бот в этом случае берёт видео со страницы плеера `player.vimeo.com/video/<id>`
+(`VimeoNoLoginIE` в `bot/extractors.py`) — так работают публичные видео и приватные по ссылке
+с хешем. Cookies (`vimeo_cookies.txt`, строка в `docker-compose.yml`,
+`VIMEO_COOKIES_FILE=/app/vimeo_cookies.txt`) нужны только для видео «только для вошедших»
+и для исходного файла, если автор разрешил скачивание. Видео, встраивание которых
+разрешено только на определённых сайтах, без страницы-источника не скачать.
+
 Боту всегда передаётся временная копия cookies, оригинал монтируется read-only.
 
 Фото-сторис, приватные посты и большинство каруселей Instagram без cookies недоступны —
@@ -434,6 +443,7 @@ yt-dlp и подклассами бота; загрузка идёт с лока
 | `ADMIN_IDS` | — | ID админов для `/stats` |
 | `COOKIES_FILE` | — | Cookies Instagram |
 | `VK_COOKIES_FILE` | — | Cookies VK (опционально) |
+| `VIMEO_COOKIES_FILE` | — | Cookies Vimeo (опционально: видео только для вошедших, исходный файл) |
 | `PREFER_H264` | `1` | Предпочитать H.264 (YouTube 4K придёт в 1080p) |
 | `TRANSCODE_NON_H264` | `1` | Транскодировать VP9/AV1/HEVC в H.264 |
 | `TRANSCODE_MAX_MB` | `300` | Максимальный размер для транскода |
@@ -462,7 +472,7 @@ bot/
 ├── downloader.py     # yt-dlp wrapper: formats, cookies, size checks, cleanup
 ├── formats.py        # варианты качества с размерами для кнопок
 ├── vk_live.py        # yt-dlp extractor: VK Video Live clips (моменты)
-├── extractors.py     # подклассы yt-dlp: фото TikTok (/photo/, слайд-шоу), фото-сторис Instagram, ролики Дзена
+├── extractors.py     # подклассы yt-dlp: фото TikTok, фото-сторис Instagram, ролики Дзена, Vimeo без входа
 ├── gallery.py        # фото-посты/карусели: разбор ответа yt-dlp в список элементов альбома
 ├── errors.py         # понятные описания ошибок вместо вывода yt-dlp
 ├── activity.py       # журнал ссылок и ежедневный отчёт админам (DAILY_REPORT)
